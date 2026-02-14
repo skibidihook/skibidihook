@@ -575,10 +575,29 @@ do
         end
     
         local Cfg = EspLibrary.Config
-        local Magnitude = math.round(DistanceOverride or (CurrentCamera.CFrame.Position - self.Current.RootPart.Position).Magnitude)
+        local RootPart = self.Current and self.Current.RootPart
+        if not RootPart then
+            Distance.Visible = false
+            return
+        end
     
-        local PosX = BoxPos2D.X + BoxSize2D.X + 4
-        local PosY = BoxPos2D.Y
+        local Magnitude = math.round(
+            DistanceOverride or 
+            (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
+        )
+    
+        if BoxSize2D.Y < 18 then
+            Distance.Visible = false
+            return
+        end
+    
+        local MinSize = 11
+        local MaxSize = Cfg.TextSize
+        local ScaleFactor = math.clamp(BoxSize2D.Y / 110, 0, 1)
+        local TextSize = math.floor(MinSize + (MaxSize - MinSize) * ScaleFactor)
+        local Padding = math.clamp(BoxSize2D.X * 0.15, 3, 6)
+        local PosX = BoxPos2D.X + BoxSize2D.X + Padding
+        local PosY = BoxPos2D.Y + (BoxSize2D.Y * 0.5) - (TextSize * 0.5)
     
         if Cfg.PixelSnap then
             PosX = math.floor(PosX + 0.5)
@@ -587,7 +606,7 @@ do
     
         Distance.Visible = true
         Distance.Center = false
-        Distance.Size = Cfg.TextSize
+        Distance.Size = TextSize
         Distance.Font = Cfg.Font
         Distance.Position = Vector2.new(PosX, PosY)
         Distance.Text = `[{Magnitude}]`
