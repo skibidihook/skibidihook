@@ -574,30 +574,28 @@ do
             return
         end
     
-        local Cfg = EspLibrary.Config
         local RootPart = self.Current and self.Current.RootPart
         if not RootPart then
             Distance.Visible = false
             return
         end
     
+        local Cfg = EspLibrary.Config
+    
         local Magnitude = math.round(
             DistanceOverride or 
             (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
         )
     
-        if BoxSize2D.Y < 18 then
-            Distance.Visible = false
-            return
-        end
-    
-        local MinSize = 11
-        local MaxSize = Cfg.TextSize
-        local ScaleFactor = math.clamp(BoxSize2D.Y / 110, 0, 1)
+        local MinSize = 13
+        local MaxSize = Cfg.TextSize + 2
+        local ScaleFactor = math.clamp(BoxSize2D.Y / 140, 0.6, 1)
         local TextSize = math.floor(MinSize + (MaxSize - MinSize) * ScaleFactor)
-        local Padding = math.clamp(BoxSize2D.X * 0.15, 3, 6)
+    
+        local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
+    
         local PosX = BoxPos2D.X + BoxSize2D.X + Padding
-        local PosY = BoxPos2D.Y + (BoxSize2D.Y * 0.5) - (TextSize * 0.5)
+        local PosY = BoxPos2D.Y - 2
     
         if Cfg.PixelSnap then
             PosX = math.floor(PosX + 0.5)
