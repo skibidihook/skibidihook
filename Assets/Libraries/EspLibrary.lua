@@ -595,7 +595,7 @@ do
         if not FlagsSettings or not FlagsSettings.Enabled then
             return 0
         end
-
+    
         local Items = {}
         if type(FlagsSettings.Builder) == "function" then
             local Ok, Result = pcall(function() return FlagsSettings.Builder(self) end)
@@ -603,7 +603,7 @@ do
                 Items = Result
             end
         end
-
+    
         local VisibleItems = {}
         local Mode = string.lower(FlagsSettings.Mode or "normal")
         if Mode == "always" then
@@ -617,53 +617,49 @@ do
                 end
             end
         end
-
+    
         local Count = math.min(#VisibleItems, #FlagTexts)
         if Count == 0 then
             return 0
         end
-
+    
         local Cfg = EspLibrary.Config
         local BoxTop = Center2D.Y - Offset.Y
         local BoxBottom = Center2D.Y + Offset.Y
         local BoxHeight = BoxBottom - BoxTop
-
+    
         local Padding = Cfg.FlagLinePadding
         local DesiredLineHeight = Cfg.FlagSize + Padding
         local TotalDesired = (Count * DesiredLineHeight) - Padding
-
+    
         local LineHeight = DesiredLineHeight
         if TotalDesired > BoxHeight then
             LineHeight = (BoxHeight + Padding) / Count
         end
-
+    
         local TextSize = math.max(8, math.floor(LineHeight - Padding))
         if TextSize > Cfg.FlagSize then
             TextSize = Cfg.FlagSize
         end
-
+    
         local X = Center2D.X + Offset.X + Cfg.FlagXPadding
         local YStart = BoxTop
-
+    
         if Cfg.PixelSnap then
             X = SnapN(X)
             YStart = SnapN(YStart)
         end
-
+    
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
             local PosY = YStart + (i - 1) * LineHeight
-
-            if PosY + LineHeight > BoxBottom then
-                break
-            end
-
+    
             if Cfg.PixelSnap then
                 PosY = SnapN(PosY)
             end
-
+    
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
             TextObj.Size = TextSize
@@ -672,14 +668,14 @@ do
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item.Text or "")
             TextObj.Position = Vector2.new(X, PosY)
-
+    
             if Mode == "always" then
                 TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
             else
                 TextObj.Color = Item.ColorTrue or Color3.new(0, 1, 0)
             end
         end
-
+    
         return (Count * LineHeight) - Padding
     end
 
