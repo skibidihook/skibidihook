@@ -624,19 +624,26 @@ do
         end
 
         local Cfg = EspLibrary.Config
-        local BoxRight = Center2D.X + Offset.X
         local BoxTop = Center2D.Y - Offset.Y
-        local BoxHeight = Offset.Y * 2
+        local BoxBottom = Center2D.Y + Offset.Y
+        local BoxHeight = BoxBottom - BoxTop
 
-        local MaxFlagBlock = BoxHeight * 0.9
         local Padding = Cfg.FlagLinePadding
-        local TotalPadding = Padding * (Count - 1)
-        local MaxLineHeight = (MaxFlagBlock - TotalPadding) / Count
-        local LineHeight = math.clamp(MaxLineHeight, 8, Cfg.FlagSize + Padding)
-        local TextSize = math.clamp(math.floor(LineHeight - Padding), 8, Cfg.FlagSize)
+        local DesiredLineHeight = Cfg.FlagSize + Padding
+        local TotalDesired = (Count * DesiredLineHeight) - Padding
 
-        local X = BoxRight + Cfg.FlagXPadding
-        local YStart = BoxTop + (BoxHeight - (Count * LineHeight - Padding)) * 0.5
+        local LineHeight = DesiredLineHeight
+        if TotalDesired > BoxHeight then
+            LineHeight = (BoxHeight + Padding) / Count
+        end
+
+        local TextSize = math.max(8, math.floor(LineHeight - Padding))
+        if TextSize > Cfg.FlagSize then
+            TextSize = Cfg.FlagSize
+        end
+
+        local X = Center2D.X + Offset.X + Cfg.FlagXPadding
+        local YStart = BoxTop
 
         if Cfg.PixelSnap then
             X = SnapN(X)
@@ -648,6 +655,10 @@ do
             local TextObj = FlagTexts[i]
             local State = not not Item.State
             local PosY = YStart + (i - 1) * LineHeight
+
+            if PosY + LineHeight > BoxBottom then
+                break
+            end
 
             if Cfg.PixelSnap then
                 PosY = SnapN(PosY)
@@ -669,7 +680,7 @@ do
             end
         end
 
-        return Count * LineHeight
+        return (Count * LineHeight) - Padding
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
