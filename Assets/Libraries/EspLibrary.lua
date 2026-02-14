@@ -624,6 +624,7 @@ do
     
         local Cfg = EspLibrary.Config
         local BoxTop = Center2D.Y - Offset.Y
+        local BoxRight = Center2D.X + Offset.X
         
         local Padding = Cfg.FlagLinePadding
         local MaxRows = 10
@@ -633,16 +634,16 @@ do
         local TextSize = Cfg.FlagSize
         local LineHeight = TextSize + Padding
     
-        local XStart = Center2D.X + Offset.X + 5
+        local XStart = BoxRight + 4
         local YStart = BoxTop
     
         if Cfg.PixelSnap then
-            XStart = SnapN(XStart)
-            YStart = SnapN(YStart)
+            XStart = math.floor(XStart + 0.5)
+            YStart = math.floor(YStart + 0.5)
         end
     
         local CharWidth = TextSize * 0.6
-        local ColGap = TextSize
+        local ColGap = 4
     
         local ColWidths = {}
         for Col = 1, Cols do
@@ -675,8 +676,8 @@ do
             local PosY = YStart + Row * LineHeight
     
             if Cfg.PixelSnap then
-                PosX = SnapN(PosX)
-                PosY = SnapN(PosY)
+                PosX = math.floor(PosX + 0.5)
+                PosY = math.floor(PosY + 0.5)
             end
     
             TextObj.Visible = true
