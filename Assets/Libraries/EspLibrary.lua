@@ -626,54 +626,20 @@ do
         local BoxTop = Center2D.Y - Offset.Y
         local BoxRight = Center2D.X + Offset.X
         
-        local Padding = Cfg.FlagLinePadding
-        local MaxRows = 10
-        local Rows = math.min(MaxRows, Count)
-        local Cols = math.ceil(Count / MaxRows)
-    
-        local TextSize = Cfg.FlagSize
+        local Padding = Cfg.FlagLinePadding or 2
+        local TextSize = Cfg.FlagSize or 13
         local LineHeight = TextSize + Padding
     
         local XStart = BoxRight + 4
         local YStart = BoxTop
-    
-        if Cfg.PixelSnap then
-            XStart = math.floor(XStart + 0.5)
-            YStart = math.floor(YStart + 0.5)
-        end
-    
-        local CharWidth = TextSize * 0.6
-        local ColGap = 4
-    
-        local ColWidths = {}
-        for Col = 1, Cols do
-            local MaxLen = 0
-            local StartIndex = (Col - 1) * MaxRows + 1
-            local EndIndex = math.min(Col * MaxRows, Count)
-            for i = StartIndex, EndIndex do
-                local Len = #tostring(VisibleItems[i].Text or "")
-                if Len > MaxLen then
-                    MaxLen = Len
-                end
-            end
-            ColWidths[Col] = math.ceil(MaxLen * CharWidth)
-        end
     
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
     
-            local Col = math.floor((i - 1) / MaxRows) + 1
-            local Row = (i - 1) % MaxRows
-    
-            local OffsetX = 0
-            for C = 1, Col - 1 do
-                OffsetX = OffsetX + ColWidths[C] + ColGap
-            end
-    
-            local PosX = XStart + OffsetX
-            local PosY = YStart + Row * LineHeight
+            local PosX = XStart
+            local PosY = YStart + (i - 1) * LineHeight
     
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
@@ -696,8 +662,9 @@ do
             end
         end
     
-        return (Rows * LineHeight) - Padding
+        return (Count * LineHeight) - Padding
     end
+
 
     function PlayerESP:Loop(Settings, DistanceOverride)
         local Current = self.Current
