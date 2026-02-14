@@ -624,9 +624,7 @@ do
     
         local Cfg = EspLibrary.Config
         local BoxTop = Center2D.Y - Offset.Y
-        local BoxBottom = Center2D.Y + Offset.Y
-        local BoxHeight = BoxBottom - BoxTop
-    
+        
         local Padding = Cfg.FlagLinePadding
         local MaxRows = 10
         local Rows = math.min(MaxRows, Count)
@@ -635,7 +633,7 @@ do
         local TextSize = Cfg.FlagSize
         local LineHeight = TextSize + Padding
     
-        local XStart = Center2D.X + Offset.X + Cfg.FlagXPadding
+        local XStart = Center2D.X + Offset.X + 5
         local YStart = BoxTop
     
         if Cfg.PixelSnap then
