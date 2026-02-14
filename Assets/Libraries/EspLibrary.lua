@@ -653,21 +653,21 @@ do
             YStart = SnapN(YStart)
         end
     
+        local CharWidth = TextSize * 0.6
+        local ColGap = TextSize
+    
         local ColWidths = {}
-        for col = 1, Cols do
-            local MaxWidth = 0
-            local StartIndex = (col - 1) * MaxRows + 1
-            local EndIndex = math.min(col * MaxRows, Count)
+        for Col = 1, Cols do
+            local MaxLen = 0
+            local StartIndex = (Col - 1) * MaxRows + 1
+            local EndIndex = math.min(Col * MaxRows, Count)
             for i = StartIndex, EndIndex do
-                local TextObj = FlagTexts[i]
-                TextObj.Text = tostring(VisibleItems[i].Text or "")
-                TextObj.Size = TextSize
-                local W = TextObj.TextBounds.X
-                if W > MaxWidth then
-                    MaxWidth = W
+                local Len = #tostring(VisibleItems[i].Text or "")
+                if Len > MaxLen then
+                    MaxLen = Len
                 end
             end
-            ColWidths[col] = MaxWidth
+            ColWidths[Col] = math.ceil(MaxLen * CharWidth)
         end
     
         for i = 1, Count do
@@ -676,11 +676,11 @@ do
             local State = not not Item.State
     
             local Col = math.floor((i - 1) / MaxRows) + 1
-            local Row = ((i - 1) % MaxRows)
+            local Row = (i - 1) % MaxRows
     
             local OffsetX = 0
-            for c = 1, Col - 1 do
-                OffsetX = OffsetX + ColWidths[c] + Padding * 2
+            for C = 1, Col - 1 do
+                OffsetX = OffsetX + ColWidths[C] + ColGap
             end
     
             local PosX = XStart + OffsetX
