@@ -604,12 +604,8 @@ do
             end
         end
 
-        local Cfg = EspLibrary.Config
-        local LineHeight = Cfg.FlagSize + Cfg.FlagLinePadding
-
         local VisibleItems = {}
         local Mode = string.lower(FlagsSettings.Mode or "normal")
-
         if Mode == "always" then
             for i = 1, #Items do
                 VisibleItems[#VisibleItems + 1] = Items[i]
@@ -627,29 +623,39 @@ do
             return 0
         end
 
+        local Cfg = EspLibrary.Config
         local BoxRight = Center2D.X + Offset.X
-        local BoxBottom = Center2D.Y + Offset.Y
+        local BoxTop = Center2D.Y - Offset.Y
+        local BoxHeight = Offset.Y * 2
+
+        local MaxFlagBlock = BoxHeight * 0.9
+        local Padding = Cfg.FlagLinePadding
+        local TotalPadding = Padding * (Count - 1)
+        local MaxLineHeight = (MaxFlagBlock - TotalPadding) / Count
+        local LineHeight = math.clamp(MaxLineHeight, 8, Cfg.FlagSize + Padding)
+        local TextSize = math.clamp(math.floor(LineHeight - Padding), 8, Cfg.FlagSize)
 
         local X = BoxRight + Cfg.FlagXPadding
-        local Y = BoxBottom
+        local YStart = BoxTop + (BoxHeight - (Count * LineHeight - Padding)) * 0.5
 
         if Cfg.PixelSnap then
             X = SnapN(X)
+            YStart = SnapN(YStart)
         end
 
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
+            local PosY = YStart + (i - 1) * LineHeight
 
-            local PosY = Y - (Count - i + 1) * LineHeight
             if Cfg.PixelSnap then
                 PosY = SnapN(PosY)
             end
 
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
-            TextObj.Size = Cfg.FlagSize
+            TextObj.Size = TextSize
             TextObj.Outline = true
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
