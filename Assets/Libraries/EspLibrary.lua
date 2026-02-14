@@ -594,7 +594,7 @@ do
             end
         
             Distance.Visible = true
-            Distance.Center = true
+            Distance.Center = false
             Distance.Size = TextSize
             Distance.Font = Cfg.Font
             Distance.Position = Vector2.new(PosX, PosY)
