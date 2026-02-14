@@ -571,7 +571,7 @@ do
             end
         
             local Cfg = EspLibrary.Config
-            local DistanceYOffset = 100
+            local DistanceYOffset = 0  -- Adjust this to move the text down (positive = down, negative = up)
         
             local Magnitude = math.round(
                 DistanceOverride or 
@@ -586,7 +586,7 @@ do
             local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
         
             local PosX = BoxPos2D.X + BoxSize2D.X + Padding
-            local PosY = BoxPos2D.Y - TextSize - 2 + DistanceYOffset
+            local PosY = BoxPos2D.Y + DistanceYOffset
         
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
