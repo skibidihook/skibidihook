@@ -571,7 +571,7 @@ do
             end
         
             local Cfg = EspLibrary.Config
-            local DistanceYOffset = -10
+            local DistanceYOffset = 10
         
             local Magnitude = math.round(
                 DistanceOverride or 
