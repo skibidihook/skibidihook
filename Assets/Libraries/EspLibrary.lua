@@ -607,7 +607,7 @@ do
         HealthBar.Size = HealthSize
     end
 
-    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
+    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings, BottomYOffset)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
@@ -648,14 +648,8 @@ do
     
         local Cfg = EspLibrary.Config
     
-        local MaxPerColumn = 3
-        local MaxColumns = 2
-        local MaxFlags = MaxPerColumn * MaxColumns
-    
+        local MaxFlags = #FlagTexts
         local Count = #VisibleItems
-        if Count > #FlagTexts then
-            Count = #FlagTexts
-        end
         if Count > MaxFlags then
             Count = MaxFlags
         end
@@ -663,61 +657,15 @@ do
             return 0
         end
     
-        local BoxTop = Center2D.Y - Offset.Y
-        local BoxBottom = Center2D.Y + Offset.Y
-        local BoxRight = Center2D.X + Offset.X
-        local BoxHeight = BoxBottom - BoxTop
-    
-        local RowsThisColumn = math.min(Count, MaxPerColumn)
-    
-        local MinTextSize = 8
-        local MaxTextSize = 13
-        local MinPadding = 1
-        local MaxPadding = 3
-    
-        local AvailablePerRow = BoxHeight / RowsThisColumn
-        local FittedTextSize = math.floor(AvailablePerRow * 0.75)
-        local TextSize = math.clamp(FittedTextSize, MinTextSize, MaxTextSize)
-    
-        local Padding = math.clamp(math.floor(AvailablePerRow - TextSize), MinPadding, MaxPadding)
-        local LineHeight = TextSize + Padding
-    
-        local TotalFlagHeight = RowsThisColumn * LineHeight - Padding
-        local YStart = BoxTop + math.floor((BoxHeight - TotalFlagHeight) * 0.5)
-    
-        if YStart < BoxTop then
-            YStart = BoxTop
-        end
-    
-        local XPadding = math.clamp(tonumber(Cfg.FlagXPadding) or 6, 2, 30)
-        local XStart = BoxRight + XPadding
-    
-        local FirstColumnWidth = 0
+        local TextSize = Cfg.TextSize
+        local LineHeight = TextSize + 1
     
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
     
-            local ColumnIndex = math.floor((i - 1) / MaxPerColumn)
-            local RowIndex = (i - 1) % MaxPerColumn
-    
-            local PosX = XStart
-            local PosY = YStart + (RowIndex * LineHeight)
-    
-            if PosY + TextSize > BoxBottom then
-                PosY = BoxBottom - TextSize
-            end
-    
-            if ColumnIndex == 0 then
-                local EstWidth = (TextSize * 0.55) * #tostring(Item and Item.Text or "")
-                if EstWidth > FirstColumnWidth then
-                    FirstColumnWidth = EstWidth
-                end
-            end
-    
-            if ColumnIndex > 0 then
-                PosX = PosX + FirstColumnWidth + 6
-            end
+            local PosX = Center2D.X
+            local PosY = Center2D.Y + Offset.Y + BottomYOffset + ((i - 1) * LineHeight)
     
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
@@ -727,6 +675,7 @@ do
             local State = not not (Item and Item.State)
     
             TextObj.Visible = true
+            TextObj.Center = true
             TextObj.Font = Cfg.Font
             TextObj.Size = TextSize
             TextObj.Outline = true
@@ -744,7 +693,7 @@ do
             end
         end
     
-        return math.min(TotalFlagHeight, BoxHeight)
+        return Count * LineHeight
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
@@ -752,51 +701,52 @@ do
         if not Current then
             return self:HideDrawings()
         end
-
+    
         local Character = Current.Character
         local Humanoid = Current.Humanoid
         local RootPart = Current.RootPart
-
+    
         if not Character or not Humanoid or not RootPart then
             return self:HideDrawings()
         end
-
+    
         local BoxCF, BoxSize3 = GetBoundingBoxSafe(Character, Humanoid)
         if not BoxCF or not BoxSize3 then
             return self:HideDrawings()
         end
-
+    
         local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
         if not AnyInFront or MinZ <= 0 then
             Current.Visible = false
             return self:HideDrawings()
         end
-
+    
         local W = MaxX - MinX
         local H = MaxY - MinY
         if W <= 1 or H <= 1 or W ~= W or H ~= H then
             return self:HideDrawings()
         end
-
+    
         Current.Visible = true
         self.Hidden = false
-
+    
         local BoxPos2D = Vector2.new(MinX, MinY)
         local BoxSize2D = Vector2.new(W, H)
-
+    
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
         local Offset = BoxSize2D * 0.5
-
+    
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
-
+    
         local BottomYOffset = 0
         local WeaponUsed = self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomYOffset)
         BottomYOffset = BottomYOffset + WeaponUsed
-        self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
-
-        self:RenderFlags(BoxPos2D, BoxSize2D, Settings.Flags)
+        local DistanceUsed = self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
+        BottomYOffset = BottomYOffset + DistanceUsed
+    
+        self:RenderFlags(Center2D, Offset, Settings.Flags, BottomYOffset)
     end
 
     EspLibrary.PlayerESP = PlayerESP
