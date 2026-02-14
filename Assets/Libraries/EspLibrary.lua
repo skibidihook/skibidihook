@@ -80,23 +80,13 @@ do
     end
 
     local function ProjectPointToScreen(WorldPosition)
-        local CamCF = CurrentCamera.CFrame
-        local Relative = CamCF:PointToObjectSpace(WorldPosition)
-        local ScreenSize = CurrentCamera.ViewportSize
-
-        local AspectRatio = ScreenSize.X / ScreenSize.Y
-        local FOV = math.rad(CurrentCamera.FieldOfView)
-        local TanHalfFOV = math.tan(FOV * 0.5)
-
-        local Depth = -Relative.Z
-        if Depth <= 0 then
-            return nil, nil, Depth
+        local ScreenPos, OnScreen = CurrentCamera:WorldToViewportPoint(WorldPosition)
+    
+        if not OnScreen or ScreenPos.Z <= 0 then
+            return nil, nil, ScreenPos.Z
         end
-
-        local ScreenX = (Relative.X / (Depth * TanHalfFOV * AspectRatio)) * 0.5 + 0.5
-        local ScreenY = (-Relative.Y / (Depth * TanHalfFOV)) * 0.5 + 0.5
-
-        return ScreenX * ScreenSize.X, ScreenY * ScreenSize.Y, Depth
+    
+        return ScreenPos.X, ScreenPos.Y, ScreenPos.Z
     end
 
     local function Get2DBoxFrom3DBounds(CF, Size)
