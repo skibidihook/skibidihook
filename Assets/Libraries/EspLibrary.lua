@@ -642,11 +642,11 @@ do
             TextSize = Cfg.FlagSize
         end
     
-        local X = Center2D.X + Offset.X + Cfg.FlagXPadding
+        local XStart = Center2D.X + Offset.X + Cfg.FlagXPadding
         local YStart = BoxTop
     
         if Cfg.PixelSnap then
-            X = SnapN(X)
+            XStart = SnapN(XStart)
             YStart = SnapN(YStart)
         end
     
@@ -654,11 +654,6 @@ do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
-            local PosY = YStart + (i - 1) * LineHeight
-    
-            if Cfg.PixelSnap then
-                PosY = SnapN(PosY)
-            end
     
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
@@ -667,12 +662,38 @@ do
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item.Text or "")
-            TextObj.Position = Vector2.new(X, PosY)
+            TextObj.Position = Vector2.new(XStart, YStart + (i - 1) * LineHeight)
     
             if Mode == "always" then
                 TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
             else
                 TextObj.Color = Item.ColorTrue or Color3.new(0, 1, 0)
+            end
+        end
+    
+        local ExtraFlags = Count - 3
+        if ExtraFlags > 0 then
+            local FirstRowCount = math.min(3, Count)
+            local MaxWidth = 0
+            for i = 1, FirstRowCount do
+                local W = FlagTexts[i].TextBounds.X
+                if W > MaxWidth then
+                    MaxWidth = W
+                end
+            end
+    
+            for i = 4, Count do
+                local TextObj = FlagTexts[i]
+                local RowIndex = i - 4
+                local PosY = YStart + RowIndex * LineHeight
+                local PosX = XStart + MaxWidth + Padding * 2
+    
+                if Cfg.PixelSnap then
+                    PosY = SnapN(PosY)
+                    PosX = SnapN(PosX)
+                end
+    
+                TextObj.Position = Vector2.new(PosX, PosY)
             end
         end
     
