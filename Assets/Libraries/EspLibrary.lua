@@ -607,93 +607,146 @@ do
         HealthBar.Size = HealthSize
     end
 
-    function PlayerESP:RenderFlags(BoxPos2D, BoxSize2D, FlagsSettings)
+    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
         end
+    
         if not FlagsSettings or not FlagsSettings.Enabled then
             return 0
         end
-
+    
         local Items = {}
         if type(FlagsSettings.Builder) == "function" then
-            local Ok, Result = pcall(function() return FlagsSettings.Builder(self) end)
+            local Ok, Result = pcall(function()
+                return FlagsSettings.Builder(self)
+            end)
             if Ok and type(Result) == "table" then
                 Items = Result
             end
         end
-
-        local VisibleItems = {}
+    
         local Mode = string.lower(FlagsSettings.Mode or "normal")
+    
+        local VisibleItems = {}
         if Mode == "always" then
             for i = 1, #Items do
                 VisibleItems[#VisibleItems + 1] = Items[i]
             end
         else
             for i = 1, #Items do
-                if Items[i].State then
-                    VisibleItems[#VisibleItems + 1] = Items[i]
+                local It = Items[i]
+                if It and It.State then
+                    VisibleItems[#VisibleItems + 1] = It
                 end
             end
         end
-
-        local Count = math.min(#VisibleItems, #FlagTexts)
-        if Count == 0 then
+    
+        if #VisibleItems == 0 then
             return 0
         end
-
+    
         local Cfg = EspLibrary.Config
-        local BoxRight = BoxPos2D.X + BoxSize2D.X
-        local BoxTop = BoxPos2D.Y
-        local BoxHeight = BoxSize2D.Y
-
-        local Padding = Cfg.FlagLinePadding or 2
-        local TextSize = Cfg.FlagSize or 13
-        local TotalContentHeight = Count * TextSize + (Count - 1) * Padding
-        local LineHeight = TextSize + Padding
-
-        local ScaleFactor = 1
-        if TotalContentHeight > BoxHeight and BoxHeight > 0 then
-            ScaleFactor = BoxHeight / TotalContentHeight
+    
+        local TextSize = tonumber(Cfg.FlagSize) or 13
+        if TextSize < 11 then
+            TextSize = 11
+        elseif TextSize > 13 then
+            TextSize = 13
         end
-
-        local ScaledTextSize = math.floor(TextSize * ScaleFactor)
-        local ScaledPadding = Padding * ScaleFactor
-        local ScaledLineHeight = ScaledTextSize + ScaledPadding
-
-        local XStart = BoxRight + (Cfg.FlagXPadding or 6)
+    
+        local Padding = tonumber(Cfg.FlagLinePadding) or 2
+        if Padding < 0 then
+            Padding = 0
+        elseif Padding > 6 then
+            Padding = 6
+        end
+    
+        local LineHeight = TextSize + Padding
+    
+        local BoxTop = Center2D.Y - Offset.Y
+        local BoxRight = Center2D.X + Offset.X
+    
+        local XPadding = tonumber(Cfg.FlagXPadding) or 6
+        if XPadding < 0 then
+            XPadding = 0
+        elseif XPadding > 30 then
+            XPadding = 30
+        end
+    
+        local XStart = BoxRight + XPadding
         local YStart = BoxTop
-
+    
+        local MaxPerColumn = 3
+        local MaxColumns = 2
+        local MaxFlags = MaxPerColumn * MaxColumns
+    
+        local Count = #VisibleItems
+        if Count > #FlagTexts then
+            Count = #FlagTexts
+        end
+        if Count > MaxFlags then
+            Count = MaxFlags
+        end
+        if Count <= 0 then
+            return 0
+        end
+    
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
-
+    
+            local ColumnIndex = math.floor((i - 1) / MaxPerColumn)
+            local RowIndex = (i - 1) % MaxPerColumn
+    
             local PosX = XStart
-            local PosY = YStart + (i - 1) * ScaledLineHeight
-
+            local PosY = YStart
+    
+            if ColumnIndex > 0 then
+                local ColumnWidth = 0
+                for j = 1, Count do
+                    local Col = math.floor((j - 1) / MaxPerColumn)
+                    if Col == 0 then
+                        local S = tostring(VisibleItems[j] and VisibleItems[j].Text or "")
+                        local W = (TextSize * 0.6) * #S
+                        if W > ColumnWidth then
+                            ColumnWidth = W
+                        end
+                    end
+                end
+                PosX = PosX + ColumnWidth + 8
+            end
+    
+            PosY = PosY + (RowIndex * LineHeight)
+    
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
                 PosY = math.floor(PosY + 0.5)
             end
-
+    
+            local State = not not (Item and Item.State)
+    
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
-            TextObj.Size = ScaledTextSize
+            TextObj.Size = TextSize
             TextObj.Outline = true
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
-            TextObj.Text = tostring(Item.Text or "")
+            TextObj.Text = tostring(Item and Item.Text or "")
             TextObj.Position = Vector2.new(PosX, PosY)
-
+    
             if Mode == "always" then
-                TextObj.Color = (Item.State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
+                local TrueColor = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
+                local FalseColor = (Item and Item.ColorFalse) or Color3.new(1, 0, 0)
+                TextObj.Color = State and TrueColor or FalseColor
             else
-                TextObj.Color = Item.ColorTrue or Color3.new(0, 1, 0)
+                TextObj.Color = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
             end
         end
-
-        return (Count * ScaledLineHeight) - ScaledPadding
+    
+        local UsedRows = math.min(Count, MaxPerColumn)
+        return (UsedRows * LineHeight) - Padding
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
