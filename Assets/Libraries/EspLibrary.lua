@@ -628,22 +628,12 @@ do
         local BoxHeight = BoxBottom - BoxTop
     
         local Padding = Cfg.FlagLinePadding
-        local MaxRows = 3
+        local MaxRows = 10
         local Rows = math.min(MaxRows, Count)
         local Cols = math.ceil(Count / MaxRows)
     
-        local DesiredLineHeight = Cfg.FlagSize + Padding
-        local TotalDesired = (Rows * DesiredLineHeight) - Padding
-    
-        local LineHeight = DesiredLineHeight
-        if TotalDesired > BoxHeight then
-            LineHeight = (BoxHeight + Padding) / Rows
-        end
-    
-        local TextSize = math.max(8, math.floor(LineHeight - Padding))
-        if TextSize > Cfg.FlagSize then
-            TextSize = Cfg.FlagSize
-        end
+        local TextSize = Cfg.FlagSize
+        local LineHeight = TextSize + Padding
     
         local XStart = Center2D.X + Offset.X + Cfg.FlagXPadding
         local YStart = BoxTop
