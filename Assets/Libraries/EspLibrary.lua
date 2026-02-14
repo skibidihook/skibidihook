@@ -26,10 +26,6 @@ EspLibrary.Config = {
     FlagLinePadding = 2,
     FlagXPadding = 6,
 
-    FlagMinSize = 8,
-    FlagMaxSize = 14,
-    FlagReferenceBoxHeight = 200,
-
     BoxCornerWidthScale = 0.25,
     BoxCornerHeightScale = 0.25,
 
@@ -539,28 +535,29 @@ do
         Name.Position = Vector2Pos - Vector2.new(0, Offset.Y + Name.Size)
     end
 
-    function PlayerESP:RenderWeapon(Vector2Pos, Offset, Enabled)
+    function PlayerESP:RenderWeapon(Vector2Pos, Offset, Enabled, BottomYOffset)
         local WeaponText = self.Drawings.Weapon
         if not Enabled then
             WeaponText.Visible = false
-            return
+            return 0
         end
         WeaponText.Visible = true
-        WeaponText.Position = Vector2Pos + Vector2.new(0, Offset.Y)
+        WeaponText.Position = Vector2Pos + Vector2.new(0, Offset.Y + BottomYOffset)
         WeaponText.Text = self.Current.Weapon and string.lower(self.Current.Weapon.Name) or "none"
+        return EspLibrary.Config.TextSize + 1
     end
 
-    function PlayerESP:RenderDistance(Vector2Pos, Offset, Enabled, DistanceOverride)
+    function PlayerESP:RenderDistance(Vector2Pos, Offset, Enabled, DistanceOverride, BottomYOffset)
         local Distance = self.Drawings.Distance
         if not Enabled then
             Distance.Visible = false
-            return
+            return 0
         end
-        local YOffset = self.Drawings.Weapon.Visible and (EspLibrary.Config.TextSize + 1) or 0
         local Magnitude = math.round(DistanceOverride or (CurrentCamera.CFrame.Position - self.Current.RootPart.Position).Magnitude)
         Distance.Visible = true
-        Distance.Position = Vector2Pos + Vector2.new(0, Offset.Y + YOffset)
+        Distance.Position = Vector2Pos + Vector2.new(0, Offset.Y + BottomYOffset)
         Distance.Text = `[{Magnitude}]`
+        return EspLibrary.Config.TextSize + 1
     end
 
     function PlayerESP:RenderHealthbar(Vector2Pos, Offset, Enabled)
@@ -590,13 +587,13 @@ do
         HealthBar.Size = HealthSize
     end
 
-    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings, BoxHeight)
+    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
         end
         if not FlagsSettings or not FlagsSettings.Enabled then
-            return
+            return 0
         end
 
         local Items = {}
@@ -608,67 +605,67 @@ do
         end
 
         local Cfg = EspLibrary.Config
-
-        local Scale = math.clamp(BoxHeight / Cfg.FlagReferenceBoxHeight, 0, 1)
-
-        local ScaledFlagSize = math.floor(math.clamp(Cfg.FlagSize * Scale, Cfg.FlagMinSize, Cfg.FlagMaxSize) + 0.5)
-        local ScaledLinePadding = math.max(math.floor(Cfg.FlagLinePadding * Scale + 0.5), 1)
-        local ScaledXPadding = math.max(math.floor(Cfg.FlagXPadding * Scale + 0.5), 2)
-
-        local LineHeight = ScaledFlagSize + ScaledLinePadding
+        local LineHeight = Cfg.FlagSize + Cfg.FlagLinePadding
 
         local RightEdgeX = Center2D.X + Offset.X
-        local TopY = Center2D.Y - Offset.Y
+        local BottomY = Center2D.Y + Offset.Y
 
-        local X = RightEdgeX + ScaledXPadding
-        local Y = TopY
+        local X = RightEdgeX + Cfg.FlagXPadding
 
         if Cfg.PixelSnap then
             X = SnapN(X)
-            Y = SnapN(Y)
         end
+
+        local VisibleItems = {}
 
         local Mode = string.lower(FlagsSettings.Mode or "normal")
         if Mode == "always" then
-            local Count = math.min(#Items, #FlagTexts)
-            for i = 1, Count do
-                local Item = Items[i]
-                local TextObj = FlagTexts[i]
-                local State = not not Item.State
+            for i = 1, #Items do
+                VisibleItems[#VisibleItems + 1] = Items[i]
+            end
+        else
+            for i = 1, #Items do
+                if Items[i].State then
+                    VisibleItems[#VisibleItems + 1] = Items[i]
+                end
+            end
+        end
 
-                TextObj.Visible = true
-                TextObj.Font = Cfg.Font
-                TextObj.Size = ScaledFlagSize
-                TextObj.Outline = true
-                TextObj.OutlineColor = Color3.new(0, 0, 0)
-                TextObj.Transparency = 1
-                TextObj.Text = tostring(Item.Text or "")
-                TextObj.Position = Vector2.new(X, Y + (LineHeight * (i - 1)))
+        local Count = math.min(#VisibleItems, #FlagTexts)
+        if Count == 0 then
+            return 0
+        end
+
+        local TotalFlagHeight = Count * LineHeight - Cfg.FlagLinePadding
+
+        local StartY = BottomY - TotalFlagHeight
+
+        if Cfg.PixelSnap then
+            StartY = SnapN(StartY)
+        end
+
+        for i = 1, Count do
+            local Item = VisibleItems[i]
+            local TextObj = FlagTexts[i]
+            local State = not not Item.State
+
+            TextObj.Visible = true
+            TextObj.Font = Cfg.Font
+            TextObj.Size = Cfg.FlagSize
+            TextObj.Outline = true
+            TextObj.OutlineColor = Color3.new(0, 0, 0)
+            TextObj.Transparency = 1
+            TextObj.Text = tostring(Item.Text or "")
+            TextObj.Position = Vector2.new(X, StartY + (LineHeight * (i - 1)))
+
+            if Mode == "always" then
                 TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
-            end
-            return
-        end
-
-        local Index = 0
-        for i = 1, #Items do
-            if Index >= #FlagTexts then break end
-            local Item = Items[i]
-            if Item.State then
-                local TextObj = FlagTexts[Index + 1]
-
-                TextObj.Visible = true
-                TextObj.Font = Cfg.Font
-                TextObj.Size = ScaledFlagSize
-                TextObj.Outline = true
-                TextObj.OutlineColor = Color3.new(0, 0, 0)
-                TextObj.Transparency = 1
-                TextObj.Text = tostring(Item.Text or "")
-                TextObj.Position = Vector2.new(X, Y + (LineHeight * Index))
+            else
                 TextObj.Color = Item.ColorTrue or Color3.new(0, 1, 0)
-
-                Index = Index + 1
             end
         end
+
+        return TotalFlagHeight + Cfg.FlagLinePadding
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
@@ -713,10 +710,14 @@ do
 
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
-        self:RenderWeapon(Center2D, Offset, Settings.Weapon)
-        self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
-        self:RenderFlags(Center2D, Offset, Settings.Flags, H)
+
+        local FlagHeight = self:RenderFlags(Center2D, Offset, Settings.Flags)
+
+        local BottomYOffset = FlagHeight
+        local WeaponUsed = self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomYOffset)
+        BottomYOffset = BottomYOffset + WeaponUsed
+        self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
     end
 
     EspLibrary.PlayerESP = PlayerESP
