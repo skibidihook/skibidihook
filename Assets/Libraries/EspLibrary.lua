@@ -79,9 +79,28 @@ do
         return nil, nil
     end
 
+    local function ProjectPointToScreen(WorldPosition)
+        local CamCF = CurrentCamera.CFrame
+        local Relative = CamCF:PointToObjectSpace(WorldPosition)
+        local ScreenSize = CurrentCamera.ViewportSize
+
+        local AspectRatio = ScreenSize.X / ScreenSize.Y
+        local FOV = math.rad(CurrentCamera.FieldOfView)
+        local TanHalfFOV = math.tan(FOV * 0.5)
+
+        local Depth = -Relative.Z
+        if Depth <= 0 then
+            return nil, nil, Depth
+        end
+
+        local ScreenX = (Relative.X / (Depth * TanHalfFOV * AspectRatio)) * 0.5 + 0.5
+        local ScreenY = (-Relative.Y / (Depth * TanHalfFOV)) * 0.5 + 0.5
+
+        return ScreenX * ScreenSize.X, ScreenY * ScreenSize.Y, Depth
+    end
+
     local function Get2DBoxFrom3DBounds(CF, Size)
-        local SX, SY, SZ = Size.X, Size.Y, Size.Z
-        local HX, HY, HZ = SX * 0.5, SY * 0.5, SZ * 0.5
+        local HX, HY, HZ = Size.X * 0.5, Size.Y * 0.5, Size.Z * 0.5
 
         local MinX, MinY = math.huge, math.huge
         local MaxX, MaxY = -math.huge, -math.huge
@@ -95,20 +114,21 @@ do
                 local OY = HY * IY
                 for IZ = -1, 1, 2 do
                     local CornerWorld = (CF * CFrame.new(OX, OY, HZ * IZ)).Position
-                    local P = CurrentCamera:WorldToViewportPoint(CornerWorld)
-                    local X, Y, Z = P.X, P.Y, P.Z
+                    local X, Y, Z = ProjectPointToScreen(CornerWorld)
 
-                    if Z > 0 then
+                    if Z and Z > 0 then
                         AnyInFront = true
                     end
-                    if Z < MinZ then
+                    if Z and Z < MinZ then
                         MinZ = Z
                     end
 
-                    if X < MinX then MinX = X end
-                    if Y < MinY then MinY = Y end
-                    if X > MaxX then MaxX = X end
-                    if Y > MaxY then MaxY = Y end
+                    if X and Y then
+                        if X < MinX then MinX = X end
+                        if Y < MinY then MinY = Y end
+                        if X > MaxX then MaxX = X end
+                        if Y > MaxY then MaxY = Y end
+                    end
                 end
             end
         end
@@ -586,7 +606,8 @@ do
         HealthBar.Position = HealthPosition
         HealthBar.Size = HealthSize
     end
-    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
+
+    function PlayerESP:RenderFlags(BoxPos2D, BoxSize2D, FlagsSettings)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
@@ -594,7 +615,7 @@ do
         if not FlagsSettings or not FlagsSettings.Enabled then
             return 0
         end
-    
+
         local Items = {}
         if type(FlagsSettings.Builder) == "function" then
             local Ok, Result = pcall(function() return FlagsSettings.Builder(self) end)
@@ -602,7 +623,7 @@ do
                 Items = Result
             end
         end
-    
+
         local VisibleItems = {}
         local Mode = string.lower(FlagsSettings.Mode or "normal")
         if Mode == "always" then
@@ -616,53 +637,63 @@ do
                 end
             end
         end
-    
+
         local Count = math.min(#VisibleItems, #FlagTexts)
         if Count == 0 then
             return 0
         end
-    
+
         local Cfg = EspLibrary.Config
-        local BoxTop = Center2D.Y - Offset.Y
-        local BoxRight = Center2D.X + Offset.X
-        
+        local BoxRight = BoxPos2D.X + BoxSize2D.X
+        local BoxTop = BoxPos2D.Y
+        local BoxHeight = BoxSize2D.Y
+
         local Padding = Cfg.FlagLinePadding or 2
         local TextSize = Cfg.FlagSize or 13
+        local TotalContentHeight = Count * TextSize + (Count - 1) * Padding
         local LineHeight = TextSize + Padding
-    
-        local XStart = BoxRight + 8
+
+        local ScaleFactor = 1
+        if TotalContentHeight > BoxHeight and BoxHeight > 0 then
+            ScaleFactor = BoxHeight / TotalContentHeight
+        end
+
+        local ScaledTextSize = math.floor(TextSize * ScaleFactor)
+        local ScaledPadding = Padding * ScaleFactor
+        local ScaledLineHeight = ScaledTextSize + ScaledPadding
+
+        local XStart = BoxRight + (Cfg.FlagXPadding or 6)
         local YStart = BoxTop
-    
+
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
-            local State = not not Item.State
-    
+
             local PosX = XStart
-            local PosY = YStart + (i - 1) * LineHeight
-    
+            local PosY = YStart + (i - 1) * ScaledLineHeight
+
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
                 PosY = math.floor(PosY + 0.5)
             end
-    
+
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
-            TextObj.Size = TextSize
+            TextObj.Size = ScaledTextSize
             TextObj.Outline = true
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item.Text or "")
             TextObj.Position = Vector2.new(PosX, PosY)
-    
+
             if Mode == "always" then
-                TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
+                TextObj.Color = (Item.State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
             else
                 TextObj.Color = Item.ColorTrue or Color3.new(0, 1, 0)
             end
         end
-    
-        return (Count * LineHeight) - Padding
+
+        return (Count * ScaledLineHeight) - ScaledPadding
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
@@ -714,7 +745,7 @@ do
         BottomYOffset = BottomYOffset + WeaponUsed
         self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
 
-        self:RenderFlags(Center2D, Offset, Settings.Flags)
+        self:RenderFlags(BoxPos2D, BoxSize2D, Settings.Flags)
     end
 
     EspLibrary.PlayerESP = PlayerESP
