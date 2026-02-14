@@ -607,18 +607,9 @@ do
         local Cfg = EspLibrary.Config
         local LineHeight = Cfg.FlagSize + Cfg.FlagLinePadding
 
-        local RightEdgeX = Center2D.X + Offset.X
-        local BottomY = Center2D.Y + Offset.Y
-
-        local X = RightEdgeX + Cfg.FlagXPadding
-
-        if Cfg.PixelSnap then
-            X = SnapN(X)
-        end
-
         local VisibleItems = {}
-
         local Mode = string.lower(FlagsSettings.Mode or "normal")
+
         if Mode == "always" then
             for i = 1, #Items do
                 VisibleItems[#VisibleItems + 1] = Items[i]
@@ -636,18 +627,25 @@ do
             return 0
         end
 
-        local TotalFlagHeight = Count * LineHeight - Cfg.FlagLinePadding
+        local BoxRight = Center2D.X + Offset.X
+        local BoxBottom = Center2D.Y + Offset.Y
 
-        local StartY = BottomY - TotalFlagHeight
+        local X = BoxRight + Cfg.FlagXPadding
+        local Y = BoxBottom
 
         if Cfg.PixelSnap then
-            StartY = SnapN(StartY)
+            X = SnapN(X)
         end
 
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
+
+            local PosY = Y - (Count - i + 1) * LineHeight
+            if Cfg.PixelSnap then
+                PosY = SnapN(PosY)
+            end
 
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
@@ -656,7 +654,7 @@ do
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item.Text or "")
-            TextObj.Position = Vector2.new(X, StartY + (LineHeight * (i - 1)))
+            TextObj.Position = Vector2.new(X, PosY)
 
             if Mode == "always" then
                 TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
@@ -665,7 +663,7 @@ do
             end
         end
 
-        return TotalFlagHeight + Cfg.FlagLinePadding
+        return Count * LineHeight
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
@@ -712,12 +710,12 @@ do
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
 
-        local FlagHeight = self:RenderFlags(Center2D, Offset, Settings.Flags)
-
-        local BottomYOffset = FlagHeight
+        local BottomYOffset = 0
         local WeaponUsed = self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomYOffset)
         BottomYOffset = BottomYOffset + WeaponUsed
         self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
+
+        self:RenderFlags(Center2D, Offset, Settings.Flags)
     end
 
     EspLibrary.PlayerESP = PlayerESP
