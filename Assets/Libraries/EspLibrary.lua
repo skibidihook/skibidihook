@@ -30,6 +30,8 @@ EspLibrary.Config = {
     BoxCornerHeightScale = 0.25,
 
     PixelSnap = true,
+
+    NameMode = "DisplayName",
 }
 
 local function SnapN(N)
@@ -126,6 +128,13 @@ do
         return MinX, MinY, MaxX, MaxY, AnyInFront, MinZ
     end
 
+    local function GetPlayerName(Player)
+        if EspLibrary.Config.NameMode == "Username" then
+            return Player.Name
+        end
+        return Player.DisplayName
+    end
+
     function PlayerESP:CreateDrawingCache()
         local AllDrawings = {}
         local Cfg = EspLibrary.Config
@@ -190,7 +199,7 @@ do
                 Color = Color3.new(1, 1, 1),
                 Transparency = 1,
                 Size = Cfg.TextSize,
-                Text = self and self.Player and self.Player.DisplayName or "",
+                Text = self and self.Player and GetPlayerName(self.Player) or "",
                 Font = Cfg.Font,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings),
@@ -256,7 +265,7 @@ do
         local Cache = PlayerESP.DrawingCache[1]
         if Cache then
             table.remove(PlayerESP.DrawingCache, 1)
-            Cache.Name.Text = Player.DisplayName
+            Cache.Name.Text = GetPlayerName(Player)
             Self.AllDrawings = Cache.All
             Self.Drawings = Cache
         else
@@ -542,6 +551,7 @@ do
             return
         end
         Name.Visible = true
+        Name.Text = GetPlayerName(self.Player)
         Name.Position = Vector2Pos - Vector2.new(0, Offset.Y + Name.Size)
     end
 
