@@ -567,17 +567,30 @@ do
         return EspLibrary.Config.TextSize + 1
     end
 
-    function PlayerESP:RenderDistance(Vector2Pos, Offset, Enabled, DistanceOverride, BottomYOffset)
+    function PlayerESP:RenderDistance(BoxPos2D, BoxSize2D, Enabled, DistanceOverride)
         local Distance = self.Drawings.Distance
         if not Enabled then
             Distance.Visible = false
-            return 0
+            return
         end
+    
+        local Cfg = EspLibrary.Config
         local Magnitude = math.round(DistanceOverride or (CurrentCamera.CFrame.Position - self.Current.RootPart.Position).Magnitude)
+    
+        local PosX = BoxPos2D.X + BoxSize2D.X + 4
+        local PosY = BoxPos2D.Y
+    
+        if Cfg.PixelSnap then
+            PosX = math.floor(PosX + 0.5)
+            PosY = math.floor(PosY + 0.5)
+        end
+    
         Distance.Visible = true
-        Distance.Position = Vector2Pos + Vector2.new(0, Offset.Y + BottomYOffset)
+        Distance.Center = false
+        Distance.Size = Cfg.TextSize
+        Distance.Font = Cfg.Font
+        Distance.Position = Vector2.new(PosX, PosY)
         Distance.Text = `[{Magnitude}]`
-        return EspLibrary.Config.TextSize + 1
     end
 
     function PlayerESP:RenderHealthbar(Vector2Pos, Offset, Enabled)
@@ -739,12 +752,11 @@ do
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
+        self:RenderDistance(BoxPos2D, BoxSize2D, Settings.Distance, DistanceOverride)
     
         local BottomYOffset = 0
         local WeaponUsed = self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomYOffset)
         BottomYOffset = BottomYOffset + WeaponUsed
-        local DistanceUsed = self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride, BottomYOffset)
-        BottomYOffset = BottomYOffset + DistanceUsed
     
         self:RenderFlags(Center2D, Offset, Settings.Flags, BottomYOffset)
     end
