@@ -630,7 +630,7 @@ do
         local TextSize = Cfg.FlagSize or 13
         local LineHeight = TextSize + Padding
     
-        local XStart = BoxRight + 4
+        local XStart = BoxRight + 8
         local YStart = BoxTop
     
         for i = 1, Count do
@@ -664,7 +664,6 @@ do
     
         return (Count * LineHeight) - Padding
     end
-
 
     function PlayerESP:Loop(Settings, DistanceOverride)
         local Current = self.Current
