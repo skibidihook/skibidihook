@@ -564,28 +564,39 @@ do
             return
         end
     
-        local RootPart = self.Current and self.Current.RootPart
-        if not RootPart then
+        local Current = self.Current
+        if not Current or not Current.Character or not Current.Humanoid or not Current.RootPart then
             Distance.Visible = false
             return
         end
     
-        local Cfg = EspLibrary.Config
+        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Current.Character, Current.Humanoid)
+        if not BoxCF then
+            Distance.Visible = false
+            return
+        end
+    
+        local TopWorld = (BoxCF * CFrame.new(0, BoxSize3.Y * 0.5, 0)).Position
+        local ScreenX, ScreenY, Depth = ProjectPointToScreen(TopWorld)
+    
+        if not ScreenX or Depth <= 0 then
+            Distance.Visible = false
+            return
+        end
     
         local Magnitude = math.round(
             DistanceOverride or 
-            (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
+            (CurrentCamera.CFrame.Position - Current.RootPart.Position).Magnitude
         )
     
-        local MinSize = 13
-        local MaxSize = Cfg.TextSize + 2
-        local ScaleFactor = math.clamp(BoxSize2D.Y / 140, 0.6, 1)
-        local TextSize = math.floor(MinSize + (MaxSize - MinSize) * ScaleFactor)
+        local Cfg = EspLibrary.Config
     
-        local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
+        local TextSize = Cfg.TextSize + 3
+    
+        local Padding = 6
     
         local PosX = BoxPos2D.X + BoxSize2D.X + Padding
-        local PosY = BoxPos2D.Y - 2
+        local PosY = ScreenY - 2 
     
         if Cfg.PixelSnap then
             PosX = math.floor(PosX + 0.5)
