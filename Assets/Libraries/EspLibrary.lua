@@ -586,7 +586,6 @@ do
         HealthBar.Position = HealthPosition
         HealthBar.Size = HealthSize
     end
-
     function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
@@ -629,12 +628,16 @@ do
         local BoxHeight = BoxBottom - BoxTop
     
         local Padding = Cfg.FlagLinePadding
+        local MaxRows = 3
+        local Rows = math.min(MaxRows, Count)
+        local Cols = math.ceil(Count / MaxRows)
+    
         local DesiredLineHeight = Cfg.FlagSize + Padding
-        local TotalDesired = (Count * DesiredLineHeight) - Padding
+        local TotalDesired = (Rows * DesiredLineHeight) - Padding
     
         local LineHeight = DesiredLineHeight
         if TotalDesired > BoxHeight then
-            LineHeight = (BoxHeight + Padding) / Count
+            LineHeight = (BoxHeight + Padding) / Rows
         end
     
         local TextSize = math.max(8, math.floor(LineHeight - Padding))
@@ -650,10 +653,43 @@ do
             YStart = SnapN(YStart)
         end
     
+        local ColWidths = {}
+        for col = 1, Cols do
+            local MaxWidth = 0
+            local StartIndex = (col - 1) * MaxRows + 1
+            local EndIndex = math.min(col * MaxRows, Count)
+            for i = StartIndex, EndIndex do
+                local TextObj = FlagTexts[i]
+                TextObj.Text = tostring(VisibleItems[i].Text or "")
+                TextObj.Size = TextSize
+                local W = TextObj.TextBounds.X
+                if W > MaxWidth then
+                    MaxWidth = W
+                end
+            end
+            ColWidths[col] = MaxWidth
+        end
+    
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
             local State = not not Item.State
+    
+            local Col = math.floor((i - 1) / MaxRows) + 1
+            local Row = ((i - 1) % MaxRows)
+    
+            local OffsetX = 0
+            for c = 1, Col - 1 do
+                OffsetX = OffsetX + ColWidths[c] + Padding * 2
+            end
+    
+            local PosX = XStart + OffsetX
+            local PosY = YStart + Row * LineHeight
+    
+            if Cfg.PixelSnap then
+                PosX = SnapN(PosX)
+                PosY = SnapN(PosY)
+            end
     
             TextObj.Visible = true
             TextObj.Font = Cfg.Font
@@ -662,7 +698,7 @@ do
             TextObj.OutlineColor = Color3.new(0, 0, 0)
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item.Text or "")
-            TextObj.Position = Vector2.new(XStart, YStart + (i - 1) * LineHeight)
+            TextObj.Position = Vector2.new(PosX, PosY)
     
             if Mode == "always" then
                 TextObj.Color = (State and (Item.ColorTrue or Color3.new(0, 1, 0))) or (Item.ColorFalse or Color3.new(1, 0, 0))
@@ -671,33 +707,7 @@ do
             end
         end
     
-        local ExtraFlags = Count - 3
-        if ExtraFlags > 0 then
-            local FirstRowCount = math.min(3, Count)
-            local MaxWidth = 0
-            for i = 1, FirstRowCount do
-                local W = FlagTexts[i].TextBounds.X
-                if W > MaxWidth then
-                    MaxWidth = W
-                end
-            end
-    
-            for i = 4, Count do
-                local TextObj = FlagTexts[i]
-                local RowIndex = i - 4
-                local PosY = YStart + RowIndex * LineHeight
-                local PosX = XStart + MaxWidth + Padding * 2
-    
-                if Cfg.PixelSnap then
-                    PosY = SnapN(PosY)
-                    PosX = SnapN(PosX)
-                end
-    
-                TextObj.Position = Vector2.new(PosX, PosY)
-            end
-        end
-    
-        return (Count * LineHeight) - Padding
+        return (Rows * LineHeight) - Padding
     end
 
     function PlayerESP:Loop(Settings, DistanceOverride)
