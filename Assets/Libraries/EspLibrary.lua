@@ -571,6 +571,7 @@ do
             end
         
             local Cfg = EspLibrary.Config
+            local DistanceYOffset = -10
         
             local Magnitude = math.round(
                 DistanceOverride or 
@@ -585,7 +586,7 @@ do
             local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
         
             local PosX = BoxPos2D.X + BoxSize2D.X + Padding
-            local PosY = BoxPos2D.Y - TextSize - 2
+            local PosY = BoxPos2D.Y - TextSize - 2 + DistanceYOffset
         
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
