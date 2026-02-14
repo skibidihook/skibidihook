@@ -26,6 +26,10 @@ EspLibrary.Config = {
     FlagLinePadding = 2,
     FlagXPadding = 6,
 
+    FlagMinSize = 8,
+    FlagMaxSize = 14,
+    FlagReferenceBoxHeight = 200,
+
     BoxCornerWidthScale = 0.25,
     BoxCornerHeightScale = 0.25,
 
@@ -586,7 +590,7 @@ do
         HealthBar.Size = HealthSize
     end
 
-    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings)
+    function PlayerESP:RenderFlags(Center2D, Offset, FlagsSettings, BoxHeight)
         local FlagTexts = self.Drawings.FlagTexts
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
@@ -604,12 +608,19 @@ do
         end
 
         local Cfg = EspLibrary.Config
-        local LineHeight = Cfg.FlagSize + Cfg.FlagLinePadding
+
+        local Scale = math.clamp(BoxHeight / Cfg.FlagReferenceBoxHeight, 0, 1)
+
+        local ScaledFlagSize = math.floor(math.clamp(Cfg.FlagSize * Scale, Cfg.FlagMinSize, Cfg.FlagMaxSize) + 0.5)
+        local ScaledLinePadding = math.max(math.floor(Cfg.FlagLinePadding * Scale + 0.5), 1)
+        local ScaledXPadding = math.max(math.floor(Cfg.FlagXPadding * Scale + 0.5), 2)
+
+        local LineHeight = ScaledFlagSize + ScaledLinePadding
 
         local RightEdgeX = Center2D.X + Offset.X
         local TopY = Center2D.Y - Offset.Y
 
-        local X = RightEdgeX + Cfg.FlagXPadding
+        local X = RightEdgeX + ScaledXPadding
         local Y = TopY
 
         if Cfg.PixelSnap then
@@ -627,7 +638,7 @@ do
 
                 TextObj.Visible = true
                 TextObj.Font = Cfg.Font
-                TextObj.Size = Cfg.FlagSize
+                TextObj.Size = ScaledFlagSize
                 TextObj.Outline = true
                 TextObj.OutlineColor = Color3.new(0, 0, 0)
                 TextObj.Transparency = 1
@@ -647,7 +658,7 @@ do
 
                 TextObj.Visible = true
                 TextObj.Font = Cfg.Font
-                TextObj.Size = Cfg.FlagSize
+                TextObj.Size = ScaledFlagSize
                 TextObj.Outline = true
                 TextObj.OutlineColor = Color3.new(0, 0, 0)
                 TextObj.Transparency = 1
@@ -705,7 +716,7 @@ do
         self:RenderWeapon(Center2D, Offset, Settings.Weapon)
         self:RenderDistance(Center2D, Offset, Settings.Distance, DistanceOverride)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
-        self:RenderFlags(Center2D, Offset, Settings.Flags)
+        self:RenderFlags(Center2D, Offset, Settings.Flags, H)
     end
 
     EspLibrary.PlayerESP = PlayerESP
