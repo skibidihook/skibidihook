@@ -81,11 +81,11 @@ do
 
     local function ProjectPointToScreen(WorldPosition)
         local ScreenPos, OnScreen = CurrentCamera:WorldToViewportPoint(WorldPosition)
-    
+
         if not OnScreen or ScreenPos.Z <= 0 then
             return nil, nil, ScreenPos.Z
         end
-    
+
         return ScreenPos.X, ScreenPos.Y, ScreenPos.Z
     end
 
@@ -545,61 +545,55 @@ do
         Name.Position = Vector2Pos - Vector2.new(0, Offset.Y + Name.Size)
     end
 
-    function PlayerESP:RenderWeapon(Vector2Pos, Offset, Enabled, BottomYOffset)
+    function PlayerESP:RenderWeapon(Center2D, Offset, Enabled, BottomYOffset)
         local WeaponText = self.Drawings.Weapon
         if not Enabled then
             WeaponText.Visible = false
             return 0
         end
         WeaponText.Visible = true
-        WeaponText.Position = Vector2Pos + Vector2.new(0, Offset.Y + BottomYOffset)
+        WeaponText.Position = Center2D + Vector2.new(0, Offset.Y + BottomYOffset)
         WeaponText.Text = self.Current.Weapon and string.lower(self.Current.Weapon.Name) or "none"
         return EspLibrary.Config.TextSize + 1
     end
 
-    function PlayerESP:RenderDistance(BoxPos2D, BoxSize2D, Enabled, DistanceOverride)
-            local Distance = self.Drawings.Distance
-            if not Enabled then
-                Distance.Visible = false
-                return
-            end
-        
-            local RootPart = self.Current and self.Current.RootPart
-            if not RootPart then
-                Distance.Visible = false
-                return
-            end
-        
-            local Cfg = EspLibrary.Config
-            local DistanceYOffset = 0  -- Adjust this to move the text down (positive = down, negative = up)
-        
-            local Magnitude = math.round(
-                DistanceOverride or 
-                (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
-            )
-        
-            local MinSize = 13
-            local MaxSize = Cfg.TextSize + 2
-            local ScaleFactor = math.clamp(BoxSize2D.Y / 140, 0.6, 1)
-            local TextSize = math.floor(MinSize + (MaxSize - MinSize) * ScaleFactor)
-        
-            local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
-        
-            local PosX = BoxPos2D.X + BoxSize2D.X + Padding
-            local PosY = BoxPos2D.Y + DistanceYOffset
-        
-            if Cfg.PixelSnap then
-                PosX = math.floor(PosX + 0.5)
-                PosY = math.floor(PosY + 0.5)
-            end
-        
-            Distance.Visible = true
-            Distance.Center = false
-            Distance.Size = TextSize
-            Distance.Font = Cfg.Font
-            Distance.Position = Vector2.new(PosX, PosY)
-            Distance.Text = `[{Magnitude}]`
+    function PlayerESP:RenderDistance(Center2D, Offset, Enabled, BottomYOffset, DistanceOverride)
+        local Distance = self.Drawings.Distance
+        if not Enabled then
+            Distance.Visible = false
+            return 0
         end
+
+        local RootPart = self.Current and self.Current.RootPart
+        if not RootPart then
+            Distance.Visible = false
+            return 0
+        end
+
+        local Cfg = EspLibrary.Config
+
+        local Magnitude = math.round(
+            DistanceOverride or
+            (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
+        )
+
+        local PosX = Center2D.X
+        local PosY = Center2D.Y + Offset.Y + BottomYOffset
+
+        if Cfg.PixelSnap then
+            PosX = math.floor(PosX + 0.5)
+            PosY = math.floor(PosY + 0.5)
+        end
+
+        Distance.Visible = true
+        Distance.Center = true
+        Distance.Size = Cfg.TextSize
+        Distance.Font = Cfg.Font
+        Distance.Position = Vector2.new(PosX, PosY)
+        Distance.Text = `[{Magnitude}]`
+
+        return Cfg.TextSize + 1
+    end
 
     function PlayerESP:RenderHealthbar(Vector2Pos, Offset, Enabled)
         if not Enabled then
@@ -633,11 +627,11 @@ do
         for i = 1, #FlagTexts do
             FlagTexts[i].Visible = false
         end
-    
+
         if not FlagsSettings or not FlagsSettings.Enabled then
             return 0
         end
-    
+
         local Items = {}
         if type(FlagsSettings.Builder) == "function" then
             local Ok, Result = pcall(function()
@@ -647,9 +641,9 @@ do
                 Items = Result
             end
         end
-    
+
         local Mode = string.lower(FlagsSettings.Mode or "normal")
-    
+
         local VisibleItems = {}
         if Mode == "always" then
             for i = 1, #Items do
@@ -662,13 +656,13 @@ do
                 end
             end
         end
-    
+
         if #VisibleItems == 0 then
             return 0
         end
-    
+
         local Cfg = EspLibrary.Config
-    
+
         local MaxFlags = #FlagTexts
         local Count = #VisibleItems
         if Count > MaxFlags then
@@ -677,24 +671,24 @@ do
         if Count <= 0 then
             return 0
         end
-    
+
         local TextSize = Cfg.TextSize
         local LineHeight = TextSize + 1
-    
+
         for i = 1, Count do
             local Item = VisibleItems[i]
             local TextObj = FlagTexts[i]
-    
+
             local PosX = Center2D.X
             local PosY = Center2D.Y + Offset.Y + BottomYOffset + ((i - 1) * LineHeight)
-    
+
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
                 PosY = math.floor(PosY + 0.5)
             end
-    
+
             local State = not not (Item and Item.State)
-    
+
             TextObj.Visible = true
             TextObj.Center = true
             TextObj.Font = Cfg.Font
@@ -704,7 +698,7 @@ do
             TextObj.Transparency = 1
             TextObj.Text = tostring(Item and Item.Text or "")
             TextObj.Position = Vector2.new(PosX, PosY)
-    
+
             if Mode == "always" then
                 local TrueColor = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
                 local FalseColor = (Item and Item.ColorFalse) or Color3.new(1, 0, 0)
@@ -713,7 +707,7 @@ do
                 TextObj.Color = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
             end
         end
-    
+
         return Count * LineHeight
     end
 
@@ -722,50 +716,52 @@ do
         if not Current then
             return self:HideDrawings()
         end
-    
+
         local Character = Current.Character
         local Humanoid = Current.Humanoid
         local RootPart = Current.RootPart
-    
+
         if not Character or not Humanoid or not RootPart then
             return self:HideDrawings()
         end
-    
+
         local BoxCF, BoxSize3 = GetBoundingBoxSafe(Character, Humanoid)
         if not BoxCF or not BoxSize3 then
             return self:HideDrawings()
         end
-    
+
         local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
         if not AnyInFront or MinZ <= 0 then
             Current.Visible = false
             return self:HideDrawings()
         end
-    
+
         local W = MaxX - MinX
         local H = MaxY - MinY
         if W <= 1 or H <= 1 or W ~= W or H ~= H then
             return self:HideDrawings()
         end
-    
+
         Current.Visible = true
         self.Hidden = false
-    
+
         local BoxPos2D = Vector2.new(MinX, MinY)
         local BoxSize2D = Vector2.new(W, H)
-    
+
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
         local Offset = BoxSize2D * 0.5
-    
+
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
-        self:RenderDistance(BoxPos2D, BoxSize2D, Settings.Distance, DistanceOverride)
-    
+
         local BottomYOffset = 0
         local WeaponUsed = self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomYOffset)
         BottomYOffset = BottomYOffset + WeaponUsed
-    
+
+        local DistanceUsed = self:RenderDistance(Center2D, Offset, Settings.Distance, BottomYOffset, DistanceOverride)
+        BottomYOffset = BottomYOffset + DistanceUsed
+
         self:RenderFlags(Center2D, Offset, Settings.Flags, BottomYOffset)
     end
 
