@@ -584,9 +584,8 @@ do
         
             local Padding = math.clamp(BoxSize2D.X * 0.12, 4, 8)
         
-            local Center2D = BoxPos2D + (BoxSize2D * 0.5)
-            local PosX = Center2D.X + (BoxSize2D.X * 0.5) + Padding
-            local PosY = Center2D.Y - (BoxSize2D.Y * 0.5) - TextSize - 2
+            local PosX = BoxPos2D.X + BoxSize2D.X + Padding
+            local PosY = BoxPos2D.Y - TextSize - 2
         
             if Cfg.PixelSnap then
                 PosX = math.floor(PosX + 0.5)
