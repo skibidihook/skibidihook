@@ -776,5 +776,17 @@ do
     end
 
     EspLibrary.PlayerESP = PlayerESP
+
+    function EspLibrary:Unload()
+        for _, PlayerEspInstance in pairs(PlayerESP.PlayerCache) do
+            PlayerESP.Remove(PlayerEspInstance.Player)
+        end
+        for _, CachedDrawings in ipairs(PlayerESP.DrawingCache) do
+            for _, DrawingObject in ipairs(CachedDrawings.All) do
+                DrawingObject:Remove()
+            end
+        end
+        table.clear(PlayerESP.DrawingCache)
+    end
 end
 return EspLibrary, 3
