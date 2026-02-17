@@ -128,11 +128,18 @@ do
         return MinX, MinY, MaxX, MaxY, AnyInFront, MinZ
     end
 
-    local function GetPlayerName(Player)
-        if EspLibrary.Config.NameMode == "Username" then
-            return Player.Name
+    local function GetName(Target)
+        if typeof(Target) == "Instance" then
+            if Target:IsA("Player") then
+                if EspLibrary.Config.NameMode == "Username" then
+                    return Target.Name
+                end
+                return Target.DisplayName
+            elseif Target:IsA("Model") then
+                return Target.Name
+            end
         end
-        return Player.DisplayName
+        return tostring(Target)
     end
 
     function PlayerESP:CreateDrawingCache()
@@ -199,7 +206,7 @@ do
                 Color = Color3.new(1, 1, 1),
                 Transparency = 1,
                 Size = Cfg.TextSize,
-                Text = self and self.Player and GetPlayerName(self.Player) or "",
+                Text = self and self.Target and GetName(self.Target) or "",
                 Font = Cfg.Font,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings),
@@ -252,9 +259,10 @@ do
         self.AllDrawings = AllDrawings
     end
 
-    PlayerESP.New = function(Player)
+    PlayerESP.New = function(Target)
         local Self = setmetatable({
-            Player = Player,
+            Target = Target,
+            Player = (typeof(Target) == "Instance" and Target:IsA("Player")) and Target or nil,
             Connections = {},
             Hidden = false,
             AllDrawings = nil,
@@ -265,7 +273,7 @@ do
         local Cache = PlayerESP.DrawingCache[1]
         if Cache then
             table.remove(PlayerESP.DrawingCache, 1)
-            Cache.Name.Text = GetPlayerName(Player)
+            Cache.Name.Text = GetName(Target)
             Self.AllDrawings = Cache.All
             Self.Drawings = Cache
         else
@@ -276,26 +284,41 @@ do
             PlayerESP.DrawingAddedConnections[i](Self)
         end
 
-        Self.Connections[#Self.Connections + 1] = Player.CharacterAdded:Connect(function(...)
-            return Self:CharacterAdded(...)
-        end)
-        Self.Connections[#Self.Connections + 1] = Player.CharacterRemoving:Connect(function(...)
-            return Self:CharacterRemoved(...)
-        end)
+        if Self.Player then
+            Self.Connections[#Self.Connections + 1] = Self.Player.CharacterAdded:Connect(function(...)
+                return Self:CharacterAdded(...)
+            end)
+            Self.Connections[#Self.Connections + 1] = Self.Player.CharacterRemoving:Connect(function(...)
+                return Self:CharacterRemoved(...)
+            end)
 
-        if Player.Character then
-            Self:CharacterAdded(Player.Character, true)
+            if Self.Player.Character then
+                Self:CharacterAdded(Self.Player.Character, true)
+            end
+        else
+             -- It's an NPC/Model
+            if typeof(Target) == "Instance" and Target:IsA("Model") then
+                 Self:CharacterAdded(Target, true)
+                 
+                 -- Handle NPC death/removal if needed
+                 Self.Connections[#Self.Connections + 1] = Target.AncestryChanged:Connect(function(_, Parent)
+                     if not Parent then
+                         Self:CharacterRemoved()
+                         PlayerESP.Remove(Target)
+                     end
+                 end)
+            end
         end
 
-        PlayerESP.PlayerCache[Player] = Self
+        PlayerESP.PlayerCache[Target] = Self
         return Self
     end
 
-    PlayerESP.Remove = function(Player)
-        local Cache = PlayerESP.PlayerCache[Player]
+    PlayerESP.Remove = function(Target)
+        local Cache = PlayerESP.PlayerCache[Target]
         if type(Cache) ~= "table" then return end
 
-        PlayerESP.PlayerCache[Player] = nil
+        PlayerESP.PlayerCache[Target] = nil
 
         if Cache.Connections then
             for i = 1, #Cache.Connections do
@@ -551,7 +574,7 @@ do
             return
         end
         Name.Visible = true
-        Name.Text = GetPlayerName(self.Player)
+        Name.Text = GetName(self.Target)
         Name.Position = Vector2Pos - Vector2.new(0, Offset.Y + Name.Size)
     end
 
@@ -779,7 +802,7 @@ do
 
     function EspLibrary:Unload()
         for _, PlayerEspInstance in pairs(PlayerESP.PlayerCache) do
-            PlayerESP.Remove(PlayerEspInstance.Player)
+            PlayerESP.Remove(PlayerEspInstance.Target)
         end
         for _, CachedDrawings in ipairs(PlayerESP.DrawingCache) do
             for _, DrawingObject in ipairs(CachedDrawings.All) do
@@ -787,6 +810,15 @@ do
             end
         end
         table.clear(PlayerESP.DrawingCache)
+    end
+    
+    function EspLibrary:AddNPC(Model)
+         if PlayerESP.PlayerCache[Model] then return PlayerESP.PlayerCache[Model] end
+         return PlayerESP.New(Model)
+    end
+    
+    function EspLibrary:RemoveNPC(Model)
+        PlayerESP.Remove(Model)
     end
 end
 return EspLibrary, 3
