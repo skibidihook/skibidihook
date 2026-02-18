@@ -1,19 +1,52 @@
 local CloneRef = cloneref or function(...) return ... end
-local CurrentCamera = CloneRef(workspace.CurrentCamera)
+local Services = {
+    Workspace = CloneRef(game:GetService("Workspace")),
+    Players = CloneRef(game:GetService("Players")),
+    RunService = CloneRef(game:GetService("RunService")),
+}
+
+local CurrentCamera = Services.Workspace.CurrentCamera
+local WorldToViewportPoint = CurrentCamera.WorldToViewportPoint
+
+local DrawingNew = Drawing.new
+local Vector2New = Vector2.new
+local Vector3New = Vector3.new
+local Color3New = Color3.new
+local CFrameNew = CFrame.new
+local TableInsert = table.insert
+local TableRemove = table.remove
+local MathFloor = math.floor
+local MathClamp = math.clamp
+local MathRound = math.round
+local MathHuge = math.huge
+local Pairs = pairs
+local IPairs = ipairs
+local ToString = tostring
+local Type = type
+
+local COLOR_BLACK = Color3New(0, 0, 0)
+local COLOR_WHITE = Color3New(1, 1, 1)
+local COLOR_GREEN = Color3New(0, 1, 0)
+local COLOR_RED = Color3New(1, 0, 0)
+local COLOR_BACKGROUND = Color3New(0.239215, 0.239215, 0.239215)
+local VECTOR2_ZERO = Vector2New(0, 0)
 
 local CreateDrawing = function(Type, Properties, ...)
-    local DrawingObject = Drawing.new(Type)
-    for Key, Value in pairs(Properties) do
+    local DrawingObject = DrawingNew(Type)
+    for Key, Value in Pairs(Properties) do
         DrawingObject[Key] = Value
     end
-    for _, TableRef in {...} do
-        table.insert(TableRef, DrawingObject)
+    local Args = {...}
+    if #Args > 0 then
+        for _, TableRef in IPairs(Args) do
+            TableInsert(TableRef, DrawingObject)
+        end
     end
     return DrawingObject
 end
 
-local GlobalFont = _G.GLOBAL_FONT or 1
-local GlobalSize = _G.GLOBAL_SIZE or 13
+local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 1
+local GlobalSize = (getgenv and getgenv().GLOBAL_SIZE) or _G.GLOBAL_SIZE or 13
 local BaseZIndex = 1
 
 local EspLibrary = {}
@@ -22,7 +55,7 @@ EspLibrary.Config = {
     Font = GlobalFont,
     TextSize = GlobalSize,
 
-    FlagSize = math.clamp(GlobalSize - 2, 11, 13),
+    FlagSize = MathClamp(GlobalSize - 2, 11, 13),
     FlagLinePadding = 2,
     FlagXPadding = 6,
 
@@ -35,11 +68,11 @@ EspLibrary.Config = {
 }
 
 local function SnapN(N)
-    return math.floor(N + 0.5)
+    return MathFloor(N + 0.5)
 end
 
 local function Snap2D(V)
-    return Vector2.new(SnapN(V.X), SnapN(V.Y))
+    return Vector2New(SnapN(V.X), SnapN(V.Y))
 end
 
 do
@@ -66,14 +99,14 @@ do
     local function GetBoundingBoxSafe(Character, Humanoid)
         if Humanoid and Humanoid.RigType == Enum.HumanoidRigType.R15 and Humanoid.ComputeR15BodyBoundingBox then
             local Ok, CF, Size = pcall(Humanoid.ComputeR15BodyBoundingBox, Humanoid)
-            if Ok and typeof(CF) == "CFrame" and typeof(Size) == "Vector3" then
+            if Ok and CF and Size then
                 return CF, Size
             end
         end
 
         if Character and Character.GetBoundingBox then
             local Ok, CF, Size = pcall(Character.GetBoundingBox, Character)
-            if Ok and typeof(CF) == "CFrame" and typeof(Size) == "Vector3" then
+            if Ok and CF and Size then
                 return CF, Size
             end
         end
@@ -82,7 +115,7 @@ do
     end
 
     local function ProjectPointToScreen(WorldPosition)
-        local ScreenPos, OnScreen = CurrentCamera:WorldToViewportPoint(WorldPosition)
+        local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, WorldPosition)
 
         if not OnScreen or ScreenPos.Z <= 0 then
             return nil, nil, ScreenPos.Z
@@ -94,32 +127,32 @@ do
     local function Get2DBoxFrom3DBounds(CF, Size)
         local HX, HY, HZ = Size.X * 0.5, Size.Y * 0.5, Size.Z * 0.5
 
-        local MinX, MinY = math.huge, math.huge
-        local MaxX, MaxY = -math.huge, -math.huge
+        local MinX, MinY = MathHuge, MathHuge
+        local MaxX, MaxY = -MathHuge, -MathHuge
 
         local AnyInFront = false
-        local MinZ = math.huge
+        local MinZ = MathHuge
 
         for IX = -1, 1, 2 do
             local OX = HX * IX
             for IY = -1, 1, 2 do
                 local OY = HY * IY
                 for IZ = -1, 1, 2 do
-                    local CornerWorld = (CF * CFrame.new(OX, OY, HZ * IZ)).Position
+                    local OZ = HZ * IZ
+                    local CornerWorld = (CF * Vector3New(OX, OY, OZ))
                     local X, Y, Z = ProjectPointToScreen(CornerWorld)
 
-                    if Z and Z > 0 then
-                        AnyInFront = true
-                    end
-                    if Z and Z < MinZ then
-                        MinZ = Z
-                    end
-
-                    if X and Y then
-                        if X < MinX then MinX = X end
-                        if Y < MinY then MinY = Y end
-                        if X > MaxX then MaxX = X end
-                        if Y > MaxY then MaxY = Y end
+                    if Z then
+                        if Z > 0 then
+                            AnyInFront = true
+                            if Z < MinZ then MinZ = Z end
+                        end
+                        if X and Y then
+                            if X < MinX then MinX = X end
+                            if Y < MinY then MinY = Y end
+                            if X > MaxX then MaxX = X end
+                            if Y > MaxY then MaxY = Y end
+                        end
                     end
                 end
             end
@@ -144,13 +177,13 @@ do
             Corners.Outlines[i] = CreateDrawing("Line", {
                 Visible = false,
                 Thickness = 2,
-                Color = Color3.new(0, 0, 0),
+                Color = COLOR_BLACK,
                 ZIndex = BaseZIndex,
             }, AllDrawings)
             Corners.Lines[i] = CreateDrawing("Line", {
                 Visible = false,
                 Thickness = 1,
-                Color = Color3.new(1, 1, 1),
+                Color = COLOR_WHITE,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings)
         end
@@ -160,13 +193,13 @@ do
             FullBox.Outlines[i] = CreateDrawing("Line", {
                 Visible = false,
                 Thickness = 2,
-                Color = Color3.new(0, 0, 0),
+                Color = COLOR_BLACK,
                 ZIndex = BaseZIndex,
             }, AllDrawings)
             FullBox.Lines[i] = CreateDrawing("Line", {
                 Visible = false,
                 Thickness = 1,
-                Color = Color3.new(1, 1, 1),
+                Color = COLOR_WHITE,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings)
         end
@@ -177,8 +210,8 @@ do
                 Visible = false,
                 Center = false,
                 Outline = true,
-                OutlineColor = Color3.new(0, 0, 0),
-                Color = Color3.new(1, 1, 1),
+                OutlineColor = COLOR_BLACK,
+                Color = COLOR_WHITE,
                 Transparency = 1,
                 Size = Cfg.FlagSize,
                 Text = "",
@@ -195,8 +228,8 @@ do
                 Visible = false,
                 Center = true,
                 Outline = true,
-                OutlineColor = Color3.new(0, 0, 0),
-                Color = Color3.new(1, 1, 1),
+                OutlineColor = COLOR_BLACK,
+                Color = COLOR_WHITE,
                 Transparency = 1,
                 Size = Cfg.TextSize,
                 Text = self and self.Player and GetPlayerName(self.Player) or "",
@@ -208,8 +241,8 @@ do
                 Visible = false,
                 Center = true,
                 Outline = true,
-                OutlineColor = Color3.new(0, 0, 0),
-                Color = Color3.new(1, 1, 1),
+                OutlineColor = COLOR_BLACK,
+                Color = COLOR_WHITE,
                 Transparency = 1,
                 Size = Cfg.TextSize,
                 Font = Cfg.Font,
@@ -220,8 +253,8 @@ do
                 Visible = false,
                 Center = true,
                 Outline = true,
-                OutlineColor = Color3.new(0, 0, 0),
-                Color = Color3.new(1, 1, 1),
+                OutlineColor = COLOR_BLACK,
+                Color = COLOR_WHITE,
                 Transparency = 1,
                 Size = Cfg.TextSize,
                 Font = Cfg.Font,
@@ -237,7 +270,7 @@ do
 
             HealthBackground = CreateDrawing("Square", {
                 Visible = false,
-                Color = Color3.new(0.239215, 0.239215, 0.239215),
+                Color = COLOR_BACKGROUND,
                 Transparency = 0.7,
                 Thickness = 1,
                 Filled = true,
@@ -264,7 +297,7 @@ do
 
         local Cache = PlayerESP.DrawingCache[1]
         if Cache then
-            table.remove(PlayerESP.DrawingCache, 1)
+            TableRemove(PlayerESP.DrawingCache, 1)
             Cache.Name.Text = GetPlayerName(Player)
             Self.AllDrawings = Cache.All
             Self.Drawings = Cache
@@ -293,7 +326,7 @@ do
 
     PlayerESP.Remove = function(Player)
         local Cache = PlayerESP.PlayerCache[Player]
-        if type(Cache) ~= "table" then return end
+        if Type(Cache) ~= "table" then return end
 
         PlayerESP.PlayerCache[Player] = nil
 
@@ -328,7 +361,7 @@ do
         self.Current.MaxHealth = MaxHealth
         self.Current.HealthPercentage = HealthPercentage
 
-        self.Drawings.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), HealthPercentage)
+        self.Drawings.HealthBar.Color = COLOR_RED:Lerp(COLOR_GREEN, HealthPercentage)
     end
 
     function PlayerESP:SetupHumanoid(Humanoid, FirstTime)
@@ -430,9 +463,9 @@ do
         local Enabled = false
         local Mode = "corner"
 
-        if type(BoxSettings) == "table" then
+        if Type(BoxSettings) == "table" then
             Enabled = not not BoxSettings.Enabled
-            Mode = string.lower(BoxSettings.Mode or "corner")
+            Mode = BoxSettings.Mode and string.lower(BoxSettings.Mode) or "corner"
         else
             Enabled = not not BoxSettings
         end
@@ -455,10 +488,10 @@ do
         local Bottom = Top + BoxSize2D.Y
 
         if EspLibrary.Config.PixelSnap then
-            Left = SnapN(Left)
-            Top = SnapN(Top)
-            Right = SnapN(Right)
-            Bottom = SnapN(Bottom)
+            Left = MathFloor(Left + 0.5)
+            Top = MathFloor(Top + 0.5)
+            Right = MathFloor(Right + 0.5)
+            Bottom = MathFloor(Bottom + 0.5)
         end
 
         if Mode == "full" then
@@ -467,35 +500,30 @@ do
                 CornersOutlines[i].Visible = false
             end
 
-            local P1 = Vector2.new(Left, Top)
-            local P2 = Vector2.new(Right, Top)
-            local P3 = Vector2.new(Right, Bottom)
-            local P4 = Vector2.new(Left, Bottom)
+            local P1 = Vector2New(Left, Top)
+            local P2 = Vector2New(Right, Top)
+            local P3 = Vector2New(Right, Bottom)
+            local P4 = Vector2New(Left, Bottom)
 
-            if EspLibrary.Config.PixelSnap then
-                P1 = Snap2D(P1)
-                P2 = Snap2D(P2)
-                P3 = Snap2D(P3)
-                P4 = Snap2D(P4)
-            end
+            local Outline1, Line1 = FullOutlines[1], FullLines[1]
+            Outline1.Visible, Line1.Visible = true, true
+            Outline1.From, Outline1.To = P1, P2
+            Line1.From, Line1.To = P1, P2
 
-            local Seg = {
-                {P1, P2},
-                {P2, P3},
-                {P3, P4},
-                {P4, P1},
-            }
+            local Outline2, Line2 = FullOutlines[2], FullLines[2]
+            Outline2.Visible, Line2.Visible = true, true
+            Outline2.From, Outline2.To = P2, P3
+            Line2.From, Line2.To = P2, P3
 
-            for i = 1, 4 do
-                local O = FullOutlines[i]
-                local L = FullLines[i]
-                O.Visible = true
-                L.Visible = true
-                O.From = Seg[i][1]
-                O.To = Seg[i][2]
-                L.From = Seg[i][1]
-                L.To = Seg[i][2]
-            end
+            local Outline3, Line3 = FullOutlines[3], FullLines[3]
+            Outline3.Visible, Line3.Visible = true, true
+            Outline3.From, Outline3.To = P3, P4
+            Line3.From, Line3.To = P3, P4
+
+            local Outline4, Line4 = FullOutlines[4], FullLines[4]
+            Outline4.Visible, Line4.Visible = true, true
+            Outline4.From, Outline4.To = P4, P1
+            Line4.From, Line4.To = P4, P1
 
             return
         end
@@ -506,42 +534,68 @@ do
         end
 
         local Cfg = EspLibrary.Config
-        local HorizontalLen = math.floor(BoxSize2D.X * Cfg.BoxCornerWidthScale)
-        local VerticalLen = math.floor(BoxSize2D.Y * Cfg.BoxCornerHeightScale)
+        local HorizontalLen = MathFloor(BoxSize2D.X * Cfg.BoxCornerWidthScale)
+        local VerticalLen = MathFloor(BoxSize2D.Y * Cfg.BoxCornerHeightScale)
 
-        local P = {
-            {Vector2.new(Left, Top), Vector2.new(Left + HorizontalLen, Top)},
-            {Vector2.new(Left, Top), Vector2.new(Left, Top + VerticalLen)},
+        local TL_H_A = Vector2New(Left, Top)
+        local TL_H_B = Vector2New(Left + HorizontalLen, Top)
+        local TL_V_A = Vector2New(Left, Top)
+        local TL_V_B = Vector2New(Left, Top + VerticalLen)
+        
+        local TR_H_A = Vector2New(Right - HorizontalLen, Top)
+        local TR_H_B = Vector2New(Right, Top)
+        local TR_V_A = Vector2New(Right, Top)
+        local TR_V_B = Vector2New(Right, Top + VerticalLen)
+        
+        local BL_H_A = Vector2New(Left, Bottom)
+        local BL_H_B = Vector2New(Left + HorizontalLen, Bottom)
+        local BL_V_A = Vector2New(Left, Bottom - VerticalLen)
+        local BL_V_B = Vector2New(Left, Bottom)
 
-            {Vector2.new(Right - HorizontalLen, Top), Vector2.new(Right, Top)},
-            {Vector2.new(Right, Top), Vector2.new(Right, Top + VerticalLen)},
+        local BR_H_A = Vector2New(Right - HorizontalLen, Bottom)
+        local BR_H_B = Vector2New(Right, Bottom)
+        local BR_V_A = Vector2New(Right, Bottom - VerticalLen)
+        local BR_V_B = Vector2New(Right, Bottom)
 
-            {Vector2.new(Left, Bottom), Vector2.new(Left + HorizontalLen, Bottom)},
-            {Vector2.new(Left, Bottom - VerticalLen), Vector2.new(Left, Bottom)},
+        local O1, L1 = CornersOutlines[1], CornersLines[1]
+        O1.Visible, L1.Visible = true, true
+        O1.From, O1.To = TL_H_A, TL_H_B
+        L1.From, L1.To = TL_H_A, TL_H_B
 
-            {Vector2.new(Right - HorizontalLen, Bottom), Vector2.new(Right, Bottom)},
-            {Vector2.new(Right, Bottom - VerticalLen), Vector2.new(Right, Bottom)},
-        }
+        local O2, L2 = CornersOutlines[2], CornersLines[2]
+        O2.Visible, L2.Visible = true, true
+        O2.From, O2.To = TL_V_A, TL_V_B
+        L2.From, L2.To = TL_V_A, TL_V_B
 
-        for i = 1, 8 do
-            local Outline = CornersOutlines[i]
-            local Line = CornersLines[i]
+        local O3, L3 = CornersOutlines[3], CornersLines[3]
+        O3.Visible, L3.Visible = true, true
+        O3.From, O3.To = TR_H_A, TR_H_B
+        L3.From, L3.To = TR_H_A, TR_H_B
 
-            local A = P[i][1]
-            local B = P[i][2]
+        local O4, L4 = CornersOutlines[4], CornersLines[4]
+        O4.Visible, L4.Visible = true, true
+        O4.From, O4.To = TR_V_A, TR_V_B
+        L4.From, L4.To = TR_V_A, TR_V_B
 
-            if EspLibrary.Config.PixelSnap then
-                A = Snap2D(A)
-                B = Snap2D(B)
-            end
+        local O5, L5 = CornersOutlines[5], CornersLines[5]
+        O5.Visible, L5.Visible = true, true
+        O5.From, O5.To = BL_H_A, BL_H_B
+        L5.From, L5.To = BL_H_A, BL_H_B
 
-            Outline.Visible = true
-            Line.Visible = true
-            Outline.From = A
-            Outline.To = B
-            Line.From = A
-            Line.To = B
-        end
+        local O6, L6 = CornersOutlines[6], CornersLines[6]
+        O6.Visible, L6.Visible = true, true
+        O6.From, O6.To = BL_V_A, BL_V_B
+        L6.From, L6.To = BL_V_A, BL_V_B
+
+        local O7, L7 = CornersOutlines[7], CornersLines[7]
+        O7.Visible, L7.Visible = true, true
+        O7.From, O7.To = BR_H_A, BR_H_B
+        L7.From, L7.To = BR_H_A, BR_H_B
+
+        local O8, L8 = CornersOutlines[8], CornersLines[8]
+        O8.Visible, L8.Visible = true, true
+        O8.From, O8.To = BR_V_A, BR_V_B
+        L8.From, L8.To = BR_V_A, BR_V_B
     end
 
     function PlayerESP:RenderName(Vector2Pos, Offset, Enabled)
@@ -552,7 +606,7 @@ do
         end
         Name.Visible = true
         Name.Text = GetPlayerName(self.Player)
-        Name.Position = Vector2Pos - Vector2.new(0, Offset.Y + Name.Size)
+        Name.Position = Vector2Pos - Vector2New(0, Offset.Y + Name.Size)
     end
 
     function PlayerESP:RenderWeapon(Center2D, Offset, Enabled, BottomYOffset)
@@ -562,7 +616,7 @@ do
             return 0
         end
         WeaponText.Visible = true
-        WeaponText.Position = Center2D + Vector2.new(0, Offset.Y + BottomYOffset)
+        WeaponText.Position = Center2D + Vector2New(0, Offset.Y + BottomYOffset)
         WeaponText.Text = self.Current.Weapon and string.lower(self.Current.Weapon.Name) or "none"
         return EspLibrary.Config.TextSize + 1
     end
@@ -582,7 +636,7 @@ do
 
         local Cfg = EspLibrary.Config
 
-        local Magnitude = math.round(
+        local Magnitude = MathRound(
             DistanceOverride or
             (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude
         )
@@ -591,15 +645,15 @@ do
         local PosY = Center2D.Y + Offset.Y + BottomYOffset
 
         if Cfg.PixelSnap then
-            PosX = math.floor(PosX + 0.5)
-            PosY = math.floor(PosY + 0.5)
+            PosX = MathFloor(PosX + 0.5)
+            PosY = MathFloor(PosY + 0.5)
         end
 
         Distance.Visible = true
         Distance.Center = true
         Distance.Size = Cfg.TextSize
         Distance.Font = Cfg.Font
-        Distance.Position = Vector2.new(PosX, PosY)
+        Distance.Position = Vector2New(PosX, PosY)
         Distance.Text = `[{Magnitude}]`
 
         return Cfg.TextSize + 1
@@ -618,12 +672,12 @@ do
         HealthBar.Visible = true
         HealthBackground.Visible = true
 
-        local BasePosition = Vector2Pos - Offset - Vector2.new(5, 0)
-        local BaseSize = Vector2.new(3, Offset.Y * 2)
+        local BasePosition = Vector2Pos - Offset - Vector2New(5, 0)
+        local BaseSize = Vector2New(3, Offset.Y * 2)
 
         local HealthLength = (BaseSize.Y - 2) * (self.Current.HealthPercentage or 0)
-        local HealthPosition = BasePosition + Vector2.new(1, 1 + (BaseSize.Y - 2 - HealthLength))
-        local HealthSize = Vector2.new(1, HealthLength)
+        local HealthPosition = BasePosition + Vector2New(1, 1 + (BaseSize.Y - 2 - HealthLength))
+        local HealthSize = Vector2New(1, HealthLength)
 
         HealthBackground.Position = BasePosition
         HealthBackground.Size = BaseSize
@@ -643,16 +697,16 @@ do
         end
 
         local Items = {}
-        if type(FlagsSettings.Builder) == "function" then
+        if Type(FlagsSettings.Builder) == "function" then
             local Ok, Result = pcall(function()
                 return FlagsSettings.Builder(self)
             end)
-            if Ok and type(Result) == "table" then
+            if Ok and Type(Result) == "table" then
                 Items = Result
             end
         end
 
-        local Mode = string.lower(FlagsSettings.Mode or "normal")
+        local Mode = FlagsSettings.Mode and string.lower(FlagsSettings.Mode) or "normal"
 
         local VisibleItems = {}
         if Mode == "always" then
@@ -693,8 +747,8 @@ do
             local PosY = Center2D.Y + Offset.Y + BottomYOffset + ((i - 1) * LineHeight)
 
             if Cfg.PixelSnap then
-                PosX = math.floor(PosX + 0.5)
-                PosY = math.floor(PosY + 0.5)
+                PosX = MathFloor(PosX + 0.5)
+                PosY = MathFloor(PosY + 0.5)
             end
 
             local State = not not (Item and Item.State)
@@ -704,17 +758,17 @@ do
             TextObj.Font = Cfg.Font
             TextObj.Size = TextSize
             TextObj.Outline = true
-            TextObj.OutlineColor = Color3.new(0, 0, 0)
+            TextObj.OutlineColor = COLOR_BLACK
             TextObj.Transparency = 1
-            TextObj.Text = tostring(Item and Item.Text or "")
-            TextObj.Position = Vector2.new(PosX, PosY)
+            TextObj.Text = ToString(Item and Item.Text or "")
+            TextObj.Position = Vector2New(PosX, PosY)
 
             if Mode == "always" then
-                local TrueColor = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
-                local FalseColor = (Item and Item.ColorFalse) or Color3.new(1, 0, 0)
+                local TrueColor = (Item and Item.ColorTrue) or COLOR_GREEN
+                local FalseColor = (Item and Item.ColorFalse) or COLOR_RED
                 TextObj.Color = State and TrueColor or FalseColor
             else
-                TextObj.Color = (Item and Item.ColorTrue) or Color3.new(0, 1, 0)
+                TextObj.Color = (Item and Item.ColorTrue) or COLOR_GREEN
             end
         end
 
@@ -755,8 +809,8 @@ do
         Current.Visible = true
         self.Hidden = false
 
-        local BoxPos2D = Vector2.new(MinX, MinY)
-        local BoxSize2D = Vector2.new(W, H)
+        local BoxPos2D = Vector2New(MinX, MinY)
+        local BoxSize2D = Vector2New(W, H)
 
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
         local Offset = BoxSize2D * 0.5
@@ -778,11 +832,11 @@ do
     EspLibrary.PlayerESP = PlayerESP
 
     function EspLibrary:Unload()
-        for _, PlayerEspInstance in pairs(PlayerESP.PlayerCache) do
+        for _, PlayerEspInstance in Pairs(PlayerESP.PlayerCache) do
             PlayerESP.Remove(PlayerEspInstance.Player)
         end
-        for _, CachedDrawings in ipairs(PlayerESP.DrawingCache) do
-            for _, DrawingObject in ipairs(CachedDrawings.All) do
+        for _, CachedDrawings in IPairs(PlayerESP.DrawingCache) do
+            for _, DrawingObject in IPairs(CachedDrawings.All) do
                 DrawingObject:Remove()
             end
         end
