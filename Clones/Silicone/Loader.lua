@@ -1,3 +1,4 @@
+print("CRACKED BY SIGMA X CORD X ACHE")
 local Games = {
     [286090429] = "",
     [7711635737] = "",
@@ -14,3 +15,4 @@ local LoaderUrl = Games[game.PlaceId]
 if LoaderUrl then
     loadstring(game:HttpGet(LoaderUrl))()
 end
+print("CRACKED BY SIGMA X CORD X ACHE")
