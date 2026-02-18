@@ -1,18 +1,12 @@
 local CloneRef = cloneref or function(...) return ... end
-local Services = {
-    Workspace = CloneRef(game:GetService("Workspace")),
-    Players = CloneRef(game:GetService("Players")),
-    RunService = CloneRef(game:GetService("RunService")),
-}
-
-local CurrentCamera = Services.Workspace.CurrentCamera
+local Workspace = CloneRef(game:GetService("Workspace"))
+local CurrentCamera = Workspace.CurrentCamera
 local WorldToViewportPoint = CurrentCamera.WorldToViewportPoint
 
 local DrawingNew = Drawing.new
 local Vector2New = Vector2.new
 local Vector3New = Vector3.new
 local Color3New = Color3.new
-local CFrameNew = CFrame.new
 local TableInsert = table.insert
 local TableRemove = table.remove
 local MathFloor = math.floor
@@ -29,7 +23,8 @@ local COLOR_WHITE = Color3New(1, 1, 1)
 local COLOR_GREEN = Color3New(0, 1, 0)
 local COLOR_RED = Color3New(1, 0, 0)
 local COLOR_BACKGROUND = Color3New(0.239215, 0.239215, 0.239215)
-local VECTOR2_ZERO = Vector2New(0, 0)
+
+local VisibleItemsBuffer = {}
 
 local CreateDrawing = function(Type, Properties, ...)
     local DrawingObject = DrawingNew(Type)
@@ -66,14 +61,6 @@ EspLibrary.Config = {
 
     NameMode = "DisplayName",
 }
-
-local function SnapN(N)
-    return MathFloor(N + 0.5)
-end
-
-local function Snap2D(V)
-    return Vector2New(SnapN(V.X), SnapN(V.Y))
-end
 
 do
     local PlayerESP = {
@@ -696,7 +683,9 @@ do
             return 0
         end
 
-        local Items = {}
+        table.clear(VisibleItemsBuffer)
+
+        local Items = nil
         if Type(FlagsSettings.Builder) == "function" then
             local Ok, Result = pcall(function()
                 return FlagsSettings.Builder(self)
@@ -708,27 +697,28 @@ do
 
         local Mode = FlagsSettings.Mode and string.lower(FlagsSettings.Mode) or "normal"
 
-        local VisibleItems = {}
-        if Mode == "always" then
-            for i = 1, #Items do
-                VisibleItems[#VisibleItems + 1] = Items[i]
-            end
-        else
-            for i = 1, #Items do
-                if Items[i] and Items[i].State then
-                    VisibleItems[#VisibleItems + 1] = Items[i]
+        if Items then
+            if Mode == "always" then
+                for i = 1, #Items do
+                    VisibleItemsBuffer[#VisibleItemsBuffer + 1] = Items[i]
+                end
+            else
+                for i = 1, #Items do
+                    if Items[i] and Items[i].State then
+                        VisibleItemsBuffer[#VisibleItemsBuffer + 1] = Items[i]
+                    end
                 end
             end
         end
 
-        if #VisibleItems == 0 then
+        local Count = #VisibleItemsBuffer
+        if Count == 0 then
             return 0
         end
 
         local Cfg = EspLibrary.Config
 
         local MaxFlags = #FlagTexts
-        local Count = #VisibleItems
         if Count > MaxFlags then
             Count = MaxFlags
         end
@@ -740,7 +730,7 @@ do
         local LineHeight = TextSize + 1
 
         for i = 1, Count do
-            local Item = VisibleItems[i]
+            local Item = VisibleItemsBuffer[i]
             local TextObj = FlagTexts[i]
 
             local PosX = Center2D.X
