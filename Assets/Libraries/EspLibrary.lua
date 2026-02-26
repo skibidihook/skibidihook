@@ -85,35 +85,19 @@ do
         PlayerESP.DrawingAddedConnections[#PlayerESP.DrawingAddedConnections + 1] = Callback
     end
 
-    local function GetBoundingBoxSafe(Character, Humanoid, IsCharacter)
+    local function GetBoundingBoxSafe(Target, Humanoid, IsCharacter)
         local CF, Size
 
-        if Character and (Humanoid or IsCharacter) then
-            if (Humanoid or IsCharacter) and Character:FindFirstChild("Head") and Character:FindFirstChild("HumanoidRootPart") then
-                local Ok, TmpCF, TmpSize = pcall(Character.ComputeR15BodyBoundingBox, Character)
-                if Ok and TmpCF and TmpSize then
-                    local CameraCF = CurrentCamera.CFrame
-                    local LookVector = CameraCF.LookVector
-                    local RotationCF = CFrameNew(Vector3Zero, LookVector)
-                    
-                    return RotationCF + TmpCF.Position, TmpSize
-                end
-            end
-
-            if not CF then
-                local RootPart = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart or Character:FindFirstChild("Torso") or Character:FindFirstChild("UpperTorso")
-                if RootPart then
-                    CF, Size = CFrame.new(RootPart.Position), Vector3New(4, 5, 2)
-                end
-            end
-            if CF and Size then
-                local CameraCF = CurrentCamera.CFrame
-                CF = CFrame.new(CF.Position, CF.Position + CameraCF.LookVector)
-                return CF, Size
+        if Target and IsCharacter then
+            local Ok, TmpSize = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
+            if Ok and TmpSize then
+                local Pivot = Target:IsA("Humanoid") and Target.Parent:GetPivot() or Target:GetPivot()
+                return Pivot, TmpSize
             end
         end
-        if Character and Character.GetBoundingBox then
-            local Ok, TmpCF, TmpSize = pcall(Character.GetBoundingBox, Character)
+
+        if Target and Target:IsA("Model") then
+            local Ok, TmpCF, TmpSize = pcall(Target.GetBoundingBox, Target)
             if Ok and TmpCF and TmpSize then
                 return TmpCF, TmpSize
             end
@@ -820,31 +804,36 @@ do
             return self:HideDrawings()
         end
 
-        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Character, Humanoid, true)
-        if not BoxCF or not BoxSize3 then
+        local _, Size3D = GetBoundingBoxSafe(Humanoid, Humanoid, true)
+        if not Size3D then
             return self:HideDrawings()
         end
 
-        local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
-        if not AnyInFront or MinZ <= 0 then
-            Current.Visible = false
+        local GoalPos = Current.RootPart.Position
+        local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, GoalPos)
+        if not OnScreen then
             return self:HideDrawings()
         end
-
-        local W = MaxX - MinX
-        local H = MaxY - MinY
-        if W <= 1 or H <= 1 or W ~= W or H ~= H then
-            return self:HideDrawings()
-        end
-
-        Current.Visible = true
         self.Hidden = false
+        
+        local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
+        local CameraCF = CurrentCamera.CFrame
+        local BoxCF = CFrame.new(GoalPos, CameraCF.Position)
 
-        local BoxPos2D = Vector2New(MinX, MinY)
-        local BoxSize2D = Vector2New(W, H)
+        local X, Y = -Size3D.X / 2, Size3D.Y / 2
+        local TopRight2D_Obj, TR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, Y, 0)).Position)
+        local BottomRight2D_Obj, BR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, -Y, 0)).Position)
+        
+        local TopRight2D = Vector2New(TopRight2D_Obj.X, TopRight2D_Obj.Y)
+        local BottomRight2D = Vector2New(BottomRight2D_Obj.X, BottomRight2D_Obj.Y)
 
-        local Center2D = BoxPos2D + (BoxSize2D * 0.5)
-        local Offset = BoxSize2D * 0.5
+        local Offset = Vector2New(
+            math.max(math.abs(TopRight2D.X - Center2D.X), math.abs(BottomRight2D.X - Center2D.X)),
+            math.max(math.abs(Center2D.Y - TopRight2D.Y), math.abs(BottomRight2D.Y - Center2D.Y))
+        )
+
+        local BoxPos2D = Center2D - Offset
+        local BoxSize2D = Offset * 2
 
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
@@ -1411,28 +1400,36 @@ do
             return NPC_ESP.Remove(Model)
         end
 
-        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Model, Humanoid, true)
-        if not BoxCF or not BoxSize3 then
+        local _, Size3D = GetBoundingBoxSafe(Humanoid, Humanoid, true)
+        if not Size3D then
             return self:HideDrawings()
         end
 
-        local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
-
-        if not AnyInFront or MinZ <= 0 then
+        local GoalPos = Model:GetPivot().Position
+        local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, GoalPos)
+        if not OnScreen then
             return self:HideDrawings()
         end
-
-        local W = MaxX - MinX
-        local H = MaxY - MinY
-        if W <= 1 or H <= 1 or W ~= W or H ~= H then
-            return self:HideDrawings()
-        end
-
         self.Hidden = false
-        local BoxPos2D = Vector2New(MinX, MinY)
-        local BoxSize2D = Vector2New(W, H)
-        local Center2D = BoxPos2D + (BoxSize2D * 0.5)
-        local Offset = BoxSize2D * 0.5
+
+        local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
+        local CameraCF = CurrentCamera.CFrame
+        local BoxCF = CFrame.new(GoalPos, CameraCF.Position)
+
+        local X, Y = -Size3D.X / 2, Size3D.Y / 2
+        local TopRight2D_Obj, TR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, Y, 0)).Position)
+        local BottomRight2D_Obj, BR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, -Y, 0)).Position)
+        
+        local TopRight2D = Vector2New(TopRight2D_Obj.X, TopRight2D_Obj.Y)
+        local BottomRight2D = Vector2New(BottomRight2D_Obj.X, BottomRight2D_Obj.Y)
+
+        local Offset = Vector2New(
+            math.max(math.abs(TopRight2D.X - Center2D.X), math.abs(BottomRight2D.X - Center2D.X)),
+            math.max(math.abs(Center2D.Y - TopRight2D.Y), math.abs(BottomRight2D.Y - Center2D.Y))
+        )
+
+        local BoxPos2D = Center2D - Offset
+        local BoxSize2D = Offset * 2
 
         self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
@@ -1442,6 +1439,7 @@ do
         BottomYOffset = BottomYOffset + self:RenderFlags(Center2D, Offset, Settings.Flags, BottomYOffset)
 
         if Settings.Healthbar then
+            local Drawings = self.Drawings
             local HealthBar = Drawings.HealthBar
             local HealthBackground = Drawings.HealthBackground
 
@@ -1451,7 +1449,8 @@ do
             local BasePosition = Center2D - Offset - Vector2New(5, 0)
             local BaseSize = Vector2New(3, Offset.Y * 2)
 
-            local HealthLength = (BaseSize.Y - 2) * self.HealthPercentage
+            local HealthPercentage = self.HealthPercentage or (Humanoid.Health / Humanoid.MaxHealth)
+            local HealthLength = (BaseSize.Y - 2) * HealthPercentage
             local HealthPosition = BasePosition + Vector2New(1, 1 + (BaseSize.Y - 2 - HealthLength))
             local HealthSize = Vector2New(1, HealthLength)
 
@@ -1460,10 +1459,10 @@ do
 
             HealthBar.Position = HealthPosition
             HealthBar.Size = HealthSize
-            HealthBar.Color = COLOR_RED:Lerp(COLOR_GREEN, self.HealthPercentage)
+            HealthBar.Color = COLOR_RED:Lerp(COLOR_GREEN, HealthPercentage)
         else
-            Drawings.HealthBar.Visible = false
-            Drawings.HealthBackground.Visible = false
+            self.Drawings.HealthBar.Visible = false
+            self.Drawings.HealthBackground.Visible = false
         end
     end
 
