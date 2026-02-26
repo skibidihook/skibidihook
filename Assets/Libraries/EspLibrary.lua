@@ -1039,6 +1039,14 @@ do
         end
 
         self.Hidden = false
+        if EspLibrary.Config.PixelSnap then
+            MinX = MathFloor(MinX + 0.5)
+            MinY = MathFloor(MinY + 0.5)
+            MaxX = MathFloor(MaxX + 0.5)
+            MaxY = MathFloor(MaxY + 0.5)
+        end
+        local W = MaxX - MinX
+        local H = MaxY - MinY
         local BoxPos2D = Vector2New(MinX, MinY)
         local BoxSize2D = Vector2New(W, H)
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
