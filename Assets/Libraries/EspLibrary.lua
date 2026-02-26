@@ -13,6 +13,8 @@ local MathFloor = math.floor
 local MathClamp = math.clamp
 local MathRound = math.round
 local MathHuge = math.huge
+local Vector3Zero = Vector3.new(0, 0, 0)
+local CFrameNew = CFrame.new
 local Pairs = pairs
 local IPairs = ipairs
 local ToString = tostring
@@ -83,18 +85,37 @@ do
         PlayerESP.DrawingAddedConnections[#PlayerESP.DrawingAddedConnections + 1] = Callback
     end
 
-    local function GetBoundingBoxSafe(Character, Humanoid)
-        if Humanoid and Humanoid.RigType == Enum.HumanoidRigType.R15 and Humanoid.ComputeR15BodyBoundingBox then
-            local Ok, CF, Size = pcall(Humanoid.ComputeR15BodyBoundingBox, Humanoid)
-            if Ok and CF and Size then
+    local function GetBoundingBoxSafe(Character, Humanoid, IsCharacter)
+        local CF, Size
+
+        if Character and (Humanoid or IsCharacter) then
+            if (Humanoid or IsCharacter) and Character:FindFirstChild("Head") and Character:FindFirstChild("HumanoidRootPart") then
+                local Ok, TmpCF, TmpSize = pcall(Character.ComputeR15BodyBoundingBox, Character)
+                if Ok and TmpCF and TmpSize then
+                    local CameraCF = CurrentCamera.CFrame
+                    local LookVector = CameraCF.LookVector
+                    local RotationCF = CFrameNew(Vector3Zero, LookVector)
+                    
+                    return RotationCF + TmpCF.Position, TmpSize
+                end
+            end
+
+            if not CF then
+                local RootPart = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart or Character:FindFirstChild("Torso") or Character:FindFirstChild("UpperTorso")
+                if RootPart then
+                    CF, Size = CFrame.new(RootPart.Position), Vector3New(4, 5, 2)
+                end
+            end
+            if CF and Size then
+                local CameraCF = CurrentCamera.CFrame
+                CF = CFrame.new(CF.Position, CF.Position + CameraCF.LookVector)
                 return CF, Size
             end
         end
-
         if Character and Character.GetBoundingBox then
-            local Ok, CF, Size = pcall(Character.GetBoundingBox, Character)
-            if Ok and CF and Size then
-                return CF, Size
+            local Ok, TmpCF, TmpSize = pcall(Character.GetBoundingBox, Character)
+            if Ok and TmpCF and TmpSize then
+                return TmpCF, TmpSize
             end
         end
 
@@ -799,7 +820,7 @@ do
             return self:HideDrawings()
         end
 
-        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Character, Humanoid)
+        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Character, Humanoid, true)
         if not BoxCF or not BoxSize3 then
             return self:HideDrawings()
         end
@@ -1100,6 +1121,7 @@ do
             }, AllDrawings),
 
             FlagTexts = {},
+            Corners = { Lines = {}, Outlines = {} },
         }
 
         for i = 1, 6 do
@@ -1132,6 +1154,21 @@ do
             }, AllDrawings)
         end
 
+        for i = 1, 8 do
+            Drawings.Corners.Outlines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 2,
+                Color = COLOR_BLACK,
+                ZIndex = BaseZIndex,
+            }, AllDrawings)
+            Drawings.Corners.Lines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Color = self.Color or COLOR_WHITE,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+
         Drawings.All = AllDrawings
         self.Drawings = Drawings
         self.AllDrawings = AllDrawings
@@ -1154,6 +1191,9 @@ do
             Cache.Name.Text = Self.Name
             Cache.Name.Color = Self.Color
             for i = 1, 4 do Cache.FullBox.Lines[i].Color = Self.Color end
+            if Cache.Corners then
+                for i = 1, 8 do Cache.Corners.Lines[i].Color = Self.Color end
+            end
             Cache.Distance.Color = Self.Color
             Self.AllDrawings = Cache.All
             Self.Drawings = Cache
@@ -1225,33 +1265,143 @@ do
         end
     end
 
-    function NPC_ESP:RenderName(Center2D, Offset, Enabled)
-        local NameText = self.Drawings.Name
+    function NPC_ESP:RenderBox(BoxPos2D, BoxSize2D, BoxSettings)
+        local Corners = self.Drawings.Corners
+        local FullBox = self.Drawings.FullBox
+
+        local CornersLines = Corners.Lines
+        local CornersOutlines = Corners.Outlines
+
+        local FullLines = FullBox.Lines
+        local FullOutlines = FullBox.Outlines
+
+        local Enabled = false
+        local Mode = "corner"
+
+        if Type(BoxSettings) == "table" then
+            Enabled = not not BoxSettings.Enabled
+            Mode = BoxSettings.Mode and string.lower(BoxSettings.Mode) or "corner"
+        else
+            Enabled = not not BoxSettings
+        end
+
         if not Enabled then
-            NameText.Visible = false
+            for i = 1, 8 do
+                CornersLines[i].Visible = false
+                CornersOutlines[i].Visible = false
+            end
+            for i = 1, 4 do
+                FullLines[i].Visible = false
+                FullOutlines[i].Visible = false
+            end
             return
         end
-        NameText.Visible = true
-        NameText.Position = Center2D - Vector2New(0, Offset.Y + NameText.Size)
-    end
 
-    function NPC_ESP:RenderDistance(Center2D, Offset, Enabled, BottomYOffset, DistanceOverride)
-        local Distance = self.Drawings.Distance
-        if not Enabled then
-            Distance.Visible = false
-            return 0
+        local Left = BoxPos2D.X
+        local Top = BoxPos2D.Y
+        local Right = Left + BoxSize2D.X
+        local Bottom = Top + BoxSize2D.Y
+
+        if EspLibrary.Config.PixelSnap then
+            Left = MathFloor(Left + 0.5)
+            Top = MathFloor(Top + 0.5)
+            Right = MathFloor(Right + 0.5)
+            Bottom = MathFloor(Bottom + 0.5)
         end
 
-        local Magnitude = MathRound(
-            DistanceOverride or
-            (CurrentCamera.CFrame.Position - self.Model.PrimaryPart.Position).Magnitude
-        )
+        if Mode == "full" then
+            for i = 1, 8 do
+                CornersLines[i].Visible = false
+                CornersOutlines[i].Visible = false
+            end
 
-        Distance.Visible = true
-        Distance.Position = Center2D + Vector2New(0, Offset.Y + BottomYOffset)
-        Distance.Text = `[{Magnitude}]`
+            local P1 = Vector2New(Left, Top)
+            local P2 = Vector2New(Right, Top)
+            local P3 = Vector2New(Right, Bottom)
+            local P4 = Vector2New(Left, Bottom)
 
-        return EspLibrary.Config.TextSize + 1
+            local Points = {P1, P2, P3, P4}
+            for i = 1, 4 do
+                local NextIdx = i % 4 + 1
+                FullOutlines[i].Visible = true
+                FullOutlines[i].From = Points[i]
+                FullOutlines[i].To = Points[NextIdx]
+                FullLines[i].Visible = true
+                FullLines[i].From = Points[i]
+                FullLines[i].To = Points[NextIdx]
+            end
+
+            return
+        end
+
+        for i = 1, 4 do
+            FullLines[i].Visible = false
+            FullOutlines[i].Visible = false
+        end
+
+        local Cfg = EspLibrary.Config
+        local HorizontalLen = MathFloor(BoxSize2D.X * Cfg.BoxCornerWidthScale)
+        local VerticalLen = MathFloor(BoxSize2D.Y * Cfg.BoxCornerHeightScale)
+
+        local TL_H_A = Vector2New(Left, Top)
+        local TL_H_B = Vector2New(Left + HorizontalLen, Top)
+        local TL_V_A = Vector2New(Left, Top)
+        local TL_V_B = Vector2New(Left, Top + VerticalLen)
+        
+        local TR_H_A = Vector2New(Right - HorizontalLen, Top)
+        local TR_H_B = Vector2New(Right, Top)
+        local TR_V_A = Vector2New(Right, Top)
+        local TR_V_B = Vector2New(Right, Top + VerticalLen)
+        
+        local BL_H_A = Vector2New(Left, Bottom)
+        local BL_H_B = Vector2New(Left + HorizontalLen, Bottom)
+        local BL_V_A = Vector2New(Left, Bottom - VerticalLen)
+        local BL_V_B = Vector2New(Left, Bottom)
+
+        local BR_H_A = Vector2New(Right - HorizontalLen, Bottom)
+        local BR_H_B = Vector2New(Right, Bottom)
+        local BR_V_A = Vector2New(Right, Bottom - VerticalLen)
+        local BR_V_B = Vector2New(Right, Bottom)
+
+        local O1, L1 = CornersOutlines[1], CornersLines[1]
+        O1.Visible, L1.Visible = true, true
+        O1.From, O1.To = TL_H_A, TL_H_B
+        L1.From, L1.To = TL_H_A, TL_H_B
+
+        local O2, L2 = CornersOutlines[2], CornersLines[2]
+        O2.Visible, L2.Visible = true, true
+        O2.From, O2.To = TL_V_A, TL_V_B
+        L2.From, L2.To = TL_V_A, TL_V_B
+
+        local O3, L3 = CornersOutlines[3], CornersLines[3]
+        O3.Visible, L3.Visible = true, true
+        O3.From, O3.To = TR_H_A, TR_H_B
+        L3.From, L3.To = TR_H_A, TR_H_B
+
+        local O4, L4 = CornersOutlines[4], CornersLines[4]
+        O4.Visible, L4.Visible = true, true
+        O4.From, O4.To = TR_V_A, TR_V_B
+        L4.From, L4.To = TR_V_A, TR_V_B
+
+        local O5, L5 = CornersOutlines[5], CornersLines[5]
+        O5.Visible, L5.Visible = true, true
+        O5.From, O5.To = BL_H_A, BL_H_B
+        L5.From, L5.To = BL_H_A, BL_H_B
+
+        local O6, L6 = CornersOutlines[6], CornersLines[6]
+        O6.Visible, L6.Visible = true, true
+        O6.From, O6.To = BL_V_A, BL_V_B
+        L6.From, L6.To = BL_V_A, BL_V_B
+
+        local O7, L7 = CornersOutlines[7], CornersLines[7]
+        O7.Visible, L7.Visible = true, true
+        O7.From, O7.To = BR_H_A, BR_H_B
+        L7.From, L7.To = BR_H_A, BR_H_B
+
+        local O8, L8 = CornersOutlines[8], CornersLines[8]
+        O8.Visible, L8.Visible = true, true
+        O8.From, O8.To = BR_V_A, BR_V_B
+        L8.From, L8.To = BR_V_A, BR_V_B
     end
 
     function NPC_ESP:Loop(Settings, DistanceOverride)
@@ -1261,7 +1411,7 @@ do
             return NPC_ESP.Remove(Model)
         end
 
-        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Model, Humanoid)
+        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Model, Humanoid, true)
         if not BoxCF or not BoxSize3 then
             return self:HideDrawings()
         end
@@ -1284,44 +1434,7 @@ do
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
         local Offset = BoxSize2D * 0.5
 
-        local Drawings = self.Drawings
-        
-        local Enabled = false
-        local Mode = "full"
-
-        if Type(Settings.Box) == "table" then
-            Enabled = not not Settings.Box.Enabled
-            Mode = Settings.Box.Mode and string.lower(Settings.Box.Mode) or "full"
-        else
-            Enabled = not not Settings.Box
-        end
-
-        local FullLines = Drawings.FullBox.Lines
-        local FullOutlines = Drawings.FullBox.Outlines
-
-        if Enabled then
-            local P1 = Vector2New(MinX, MinY)
-            local P2 = Vector2New(MaxX, MinY)
-            local P3 = Vector2New(MaxX, MaxY)
-            local P4 = Vector2New(MinX, MaxY)
-
-            local Points = {P1, P2, P3, P4}
-            for i = 1, 4 do
-                local NextIdx = i % 4 + 1
-                FullOutlines[i].Visible = true
-                FullOutlines[i].From = Points[i]
-                FullOutlines[i].To = Points[NextIdx]
-                FullLines[i].Visible = true
-                FullLines[i].From = Points[i]
-                FullLines[i].To = Points[NextIdx]
-            end
-        else
-            for i = 1, 4 do
-                FullOutlines[i].Visible = false
-                FullLines[i].Visible = false
-            end
-        end
-
+        self:RenderBox(BoxPos2D, BoxSize2D, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
 
         local BottomYOffset = 0
