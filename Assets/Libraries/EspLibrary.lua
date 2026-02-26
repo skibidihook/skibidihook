@@ -321,8 +321,9 @@ do
                     return Self:CharacterRemoved(...)
                 end)
             end
-            if Player.Character then
-                Self:CharacterAdded(Player.Character, true)
+            local Character = Player.Character or Player.model or Player.Model
+            if Character then
+                Self:CharacterAdded(Character, true)
             end
         end
 
@@ -840,7 +841,6 @@ do
 
     EspLibrary.PlayerESP = PlayerESP
 
-    -- EntityESP
     local EntityESP = {
         EntityCache = {},
         DrawingCache = {},
@@ -994,7 +994,6 @@ do
         local Center2D = BoxPos2D + (BoxSize2D * 0.5)
         local Offset = BoxSize2D * 0.5
 
-        -- Render Box
         local Drawings = self.Drawings
         local FullLines = Drawings.FullBox.Lines
         local FullOutlines = Drawings.FullBox.Outlines
@@ -1022,7 +1021,6 @@ do
             end
         end
 
-        -- Render Name
         if Settings.Name then
             Drawings.Name.Visible = true
             Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + Drawings.Name.Size)
@@ -1030,7 +1028,6 @@ do
             Drawings.Name.Visible = false
         end
 
-        -- Render Distance
         if Settings.Distance then
             local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - BoxCF.Position).Magnitude)
             Drawings.Distance.Visible = true
@@ -1043,7 +1040,6 @@ do
 
     EspLibrary.EntityESP = EntityESP
 
-    -- NPC_ESP
     local NPC_ESP = {
         NpcCache = {},
         DrawingCache = {},
@@ -1102,7 +1098,24 @@ do
                 Filled = true,
                 ZIndex = BaseZIndex,
             }, AllDrawings),
+
+            FlagTexts = {},
         }
+
+        for i = 1, 6 do
+            Drawings.FlagTexts[i] = CreateDrawing("Text", {
+                Visible = false,
+                Center = false,
+                Outline = true,
+                OutlineColor = COLOR_BLACK,
+                Color = COLOR_WHITE,
+                Transparency = 1,
+                Size = Cfg.FlagSize,
+                Text = "",
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
 
         for i = 1, 4 do
             Drawings.FullBox.Outlines[i] = CreateDrawing("Line", {
@@ -1125,12 +1138,9 @@ do
     end
 
     NPC_ESP.New = function(Model, Color, Name)
-        local Humanoid = Model:FindFirstChildOfClass("Humanoid")
-        if not Humanoid then return end
-
         local Self = setmetatable({
             Model = Model,
-            Humanoid = Humanoid,
+            Humanoid = nil,
             Color = Color or COLOR_WHITE,
             Name = Name or Model.Name,
             Connections = {},
@@ -1155,12 +1165,28 @@ do
             NPC_ESP.DrawingAddedConnections[i](Self)
         end
 
-        local function UpdateHealth()
-            Self.HealthPercentage = (Humanoid.MaxHealth > 0 and (Humanoid.Health / Humanoid.MaxHealth)) or 0
+        local function SetupHumanoid(Humanoid)
+            if Self.Humanoid then return end
+            Self.Humanoid = Humanoid
+            local function UpdateHealth()
+                Self.HealthPercentage = (Humanoid.MaxHealth > 0 and (Humanoid.Health / Humanoid.MaxHealth)) or 0
+            end
+            UpdateHealth()
+            Self.Connections[#Self.Connections + 1] = Humanoid:GetPropertyChangedSignal("Health"):Connect(UpdateHealth)
+            Self.Connections[#Self.Connections + 1] = Humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(UpdateHealth)
         end
-        UpdateHealth()
 
-        Self.Connections[#Self.Connections + 1] = Humanoid:GetPropertyChangedSignal("Health"):Connect(UpdateHealth)
+        local InitialHumanoid = Model:FindFirstChildOfClass("Humanoid")
+        if InitialHumanoid then
+            SetupHumanoid(InitialHumanoid)
+        else
+            Self.Connections[#Self.Connections + 1] = Model.ChildAdded:Connect(function(Child)
+                if Child:IsA("Humanoid") then
+                    SetupHumanoid(Child)
+                end
+            end)
+        end
+
         Self.Connections[#Self.Connections + 1] = Model.AncestryChanged:Connect(function(_, Parent)
             if not Parent then
                 NPC_ESP.Remove(Model)
@@ -1199,6 +1225,35 @@ do
         end
     end
 
+    function NPC_ESP:RenderName(Center2D, Offset, Enabled)
+        local NameText = self.Drawings.Name
+        if not Enabled then
+            NameText.Visible = false
+            return
+        end
+        NameText.Visible = true
+        NameText.Position = Center2D - Vector2New(0, Offset.Y + NameText.Size)
+    end
+
+    function NPC_ESP:RenderDistance(Center2D, Offset, Enabled, BottomYOffset, DistanceOverride)
+        local Distance = self.Drawings.Distance
+        if not Enabled then
+            Distance.Visible = false
+            return 0
+        end
+
+        local Magnitude = MathRound(
+            DistanceOverride or
+            (CurrentCamera.CFrame.Position - self.Model.PrimaryPart.Position).Magnitude
+        )
+
+        Distance.Visible = true
+        Distance.Position = Center2D + Vector2New(0, Offset.Y + BottomYOffset)
+        Distance.Text = `[{Magnitude}]`
+
+        return EspLibrary.Config.TextSize + 1
+    end
+
     function NPC_ESP:Loop(Settings, DistanceOverride)
         local Model = self.Model
         local Humanoid = self.Humanoid
@@ -1230,10 +1285,21 @@ do
         local Offset = BoxSize2D * 0.5
 
         local Drawings = self.Drawings
+        
+        local Enabled = false
+        local Mode = "full"
+
+        if Type(Settings.Box) == "table" then
+            Enabled = not not Settings.Box.Enabled
+            Mode = Settings.Box.Mode and string.lower(Settings.Box.Mode) or "full"
+        else
+            Enabled = not not Settings.Box
+        end
+
         local FullLines = Drawings.FullBox.Lines
         local FullOutlines = Drawings.FullBox.Outlines
 
-        if Settings.Box then
+        if Enabled then
             local P1 = Vector2New(MinX, MinY)
             local P2 = Vector2New(MaxX, MinY)
             local P3 = Vector2New(MaxX, MaxY)
@@ -1256,21 +1322,11 @@ do
             end
         end
 
-        if Settings.Name then
-            Drawings.Name.Visible = true
-            Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + Drawings.Name.Size)
-        else
-            Drawings.Name.Visible = false
-        end
+        self:RenderName(Center2D, Offset, Settings.Name)
 
-        if Settings.Distance then
-            local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - BoxCF.Position).Magnitude)
-            Drawings.Distance.Visible = true
-            Drawings.Distance.Position = Center2D + Vector2New(0, Offset.Y)
-            Drawings.Distance.Text = `[{Magnitude}]`
-        else
-            Drawings.Distance.Visible = false
-        end
+        local BottomYOffset = 0
+        BottomYOffset = BottomYOffset + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomYOffset, DistanceOverride)
+        BottomYOffset = BottomYOffset + self:RenderFlags(Center2D, Offset, Settings.Flags, BottomYOffset)
 
         if Settings.Healthbar then
             local HealthBar = Drawings.HealthBar
@@ -1296,6 +1352,93 @@ do
             Drawings.HealthBar.Visible = false
             Drawings.HealthBackground.Visible = false
         end
+    end
+
+    function NPC_ESP:RenderFlags(Center2D, Offset, FlagsSettings, BottomYOffset)
+        local FlagTexts = self.Drawings.FlagTexts
+        for i = 1, #FlagTexts do
+            FlagTexts[i].Visible = false
+        end
+
+        if not FlagsSettings or not FlagsSettings.Enabled then
+            return 0
+        end
+
+        table.clear(VisibleItemsBuffer)
+
+        local Items = nil
+        if Type(FlagsSettings.Builder) == "function" then
+            local Ok, Result = pcall(function()
+                return FlagsSettings.Builder(self)
+            end)
+            if Ok and Type(Result) == "table" then
+                Items = Result
+            end
+        end
+
+        local Mode = FlagsSettings.Mode and string.lower(FlagsSettings.Mode) or "normal"
+
+        if Items then
+            if Mode == "always" then
+                for i = 1, #Items do
+                    VisibleItemsBuffer[#VisibleItemsBuffer + 1] = Items[i]
+                end
+            else
+                for i = 1, #Items do
+                    if Items[i] and Items[i].State then
+                        VisibleItemsBuffer[#VisibleItemsBuffer + 1] = Items[i]
+                    end
+                end
+            end
+        end
+
+        local Count = #VisibleItemsBuffer
+        if Count == 0 then
+            return 0
+        end
+
+        local Cfg = EspLibrary.Config
+        local MaxFlags = #FlagTexts
+        if Count > MaxFlags then Count = MaxFlags end
+        if Count <= 0 then return 0 end
+
+        local TextSize = Cfg.TextSize
+        local LineHeight = TextSize + 1
+
+        for i = 1, Count do
+            local Item = VisibleItemsBuffer[i]
+            local TextObj = FlagTexts[i]
+
+            local PosX = Center2D.X
+            local PosY = Center2D.Y + Offset.Y + BottomYOffset + ((i - 1) * LineHeight)
+
+            if Cfg.PixelSnap then
+                PosX = MathFloor(PosX + 0.5)
+                PosY = MathFloor(PosY + 0.5)
+            end
+
+            local State = not not (Item and Item.State)
+
+            TextObj.Visible = true
+            TextObj.Center = true
+            TextObj.Font = Cfg.Font
+            TextObj.Size = TextSize
+            TextObj.Outline = true
+            TextObj.OutlineColor = COLOR_BLACK
+            TextObj.Transparency = 1
+            TextObj.Text = ToString(Item and Item.Text or "")
+            TextObj.Position = Vector2New(PosX, PosY)
+
+            if Mode == "always" then
+                local TrueColor = (Item and Item.ColorTrue) or COLOR_GREEN
+                local FalseColor = (Item and Item.ColorFalse) or COLOR_RED
+                TextObj.Color = State and TrueColor or FalseColor
+            else
+                TextObj.Color = (Item and Item.ColorTrue) or COLOR_GREEN
+            end
+        end
+
+        return Count * LineHeight
     end
 
     EspLibrary.NPC_ESP = NPC_ESP
