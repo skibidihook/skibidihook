@@ -1393,6 +1393,30 @@ do
         L8.From, L8.To = BR_V_A, BR_V_B
     end
 
+    function NPC_ESP:RenderName(Center2D, Offset, Enabled)
+        local NameText = self.Drawings.Name
+        if not Enabled then
+            NameText.Visible = false
+            return
+        end
+        NameText.Visible = true
+        NameText.Position = Center2D - Vector2New(0, Offset.Y + NameText.Size)
+        NameText.Text = self.Name or "NPC"
+    end
+
+    function NPC_ESP:RenderDistance(Center2D, Offset, Enabled, BottomYOffset, DistanceOverride)
+        local DistanceText = self.Drawings.Distance
+        if not Enabled then
+            DistanceText.Visible = false
+            return 0
+        end
+        DistanceText.Visible = true
+        DistanceText.Position = Center2D + Vector2New(0, Offset.Y + BottomYOffset)
+        local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - self.Model:GetPivot().Position).Magnitude)
+        DistanceText.Text = `[{Magnitude}]`
+        return EspLibrary.Config.TextSize + 1
+    end
+
     function NPC_ESP:Loop(Settings, DistanceOverride)
         local Model = self.Model
         local Humanoid = self.Humanoid
