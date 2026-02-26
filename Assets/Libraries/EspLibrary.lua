@@ -933,6 +933,22 @@ do
             }, AllDrawings)
         end
 
+        Drawings.Corners = { Lines = {}, Outlines = {} }
+        for i = 1, 16 do
+            Drawings.Corners.Outlines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 2,
+                Color = COLOR_BLACK,
+                ZIndex = BaseZIndex,
+            }, AllDrawings)
+            Drawings.Corners.Lines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Color = self.Color or COLOR_WHITE,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+
         Drawings.All = AllDrawings
         self.Drawings = Drawings
         self.AllDrawings = AllDrawings
@@ -953,6 +969,7 @@ do
             Cache.Name.Text = Self.Name
             Cache.Name.Color = Self.Color
             for i = 1, 4 do Cache.FullBox.Lines[i].Color = Self.Color end
+            for i = 1, 16 do Cache.Corners.Lines[i].Color = Self.Color end
             Cache.Distance.Color = Self.Color
             Self.AllDrawings = Cache.All
             Self.Drawings = Cache
@@ -1028,10 +1045,17 @@ do
         local Offset = BoxSize2D * 0.5
 
         local Drawings = self.Drawings
+        
+        local BoxSettings = Settings.Box
+        local BoxEnabled = Type(BoxSettings) == "table" and BoxSettings.Enabled or (Type(BoxSettings) == "boolean" and BoxSettings)
+        local BoxMode = Type(BoxSettings) == "table" and BoxSettings.Mode or "Full"
+
         local FullLines = Drawings.FullBox.Lines
         local FullOutlines = Drawings.FullBox.Outlines
+        local CornerLines = Drawings.Corners.Lines
+        local CornerOutlines = Drawings.Corners.Outlines
 
-        if Settings.Box then
+        if BoxEnabled and BoxMode == "Full" then
             local P1 = Vector2New(MinX, MinY)
             local P2 = Vector2New(MaxX, MinY)
             local P3 = Vector2New(MaxX, MaxY)
@@ -1051,6 +1075,40 @@ do
             for i = 1, 4 do
                 FullOutlines[i].Visible = false
                 FullLines[i].Visible = false
+            end
+        end
+
+        if BoxEnabled and BoxMode == "Corner" then
+            local Cfg = EspLibrary.Config
+            local HorizontalLen = MathFloor(W * Cfg.BoxCornerWidthScale)
+            local VerticalLen = MathFloor(H * Cfg.BoxCornerHeightScale)
+
+            local Corners = {
+                {Vector2New(MinX, MinY), Vector2New(MinX + HorizontalLen, MinY)},
+                {Vector2New(MinX, MinY), Vector2New(MinX, MinY + VerticalLen)},
+                {Vector2New(MaxX, MinY), Vector2New(MaxX - HorizontalLen, MinY)},
+                {Vector2New(MaxX, MinY), Vector2New(MaxX, MinY + VerticalLen)},
+                {Vector2New(MinX, MaxY), Vector2New(MinX + HorizontalLen, MaxY)},
+                {Vector2New(MinX, MaxY), Vector2New(MinX, MaxY - VerticalLen)},
+                {Vector2New(MaxX, MaxY), Vector2New(MaxX - HorizontalLen, MaxY)},
+                {Vector2New(MaxX, MaxY), Vector2New(MaxX, MaxY - VerticalLen)},
+            }
+
+            for i = 1, 8 do
+                local Line = CornerLines[i]
+                local Outline = CornerOutlines[i]
+                local Points = Corners[i]
+                
+                Outline.Visible, Line.Visible = true, true
+                Outline.From, Outline.To = Points[1], Points[2]
+                Line.From, Line.To = Points[1], Points[2]
+            end
+        else
+            for i = 1, 16 do
+                if CornerLines[i] then
+                    CornerLines[i].Visible = false
+                    CornerOutlines[i].Visible = false
+                end
             end
         end
 
