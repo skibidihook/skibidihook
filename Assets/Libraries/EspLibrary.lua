@@ -87,9 +87,35 @@ do
 
     local function GetBoundingBoxSafe(Target, Humanoid, IsCharacter)
         if Target and IsCharacter then
-            local Ok, CF, Size = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
-            if Ok and CF and Size then
-                return CF, Size
+            local Whitelist = EspLibrary.CharacterWhitelist
+            if Whitelist then
+                local Min, Max = Vector3New(MathHuge, MathHuge, MathHuge), Vector3New(-MathHuge, -MathHuge, -MathHuge)
+                local Found = false
+
+                for _, Part in IPairs(Target:GetChildren()) do
+                    if Part:IsA("BasePart") and Whitelist[Part.Name] then
+                        local Size = Part.Size
+                        local CF = Part.CFrame
+                        
+                        local P = CF.Position
+                        local HalfSize = Size * 0.5
+                        
+                        Min = Vector3New(math.min(Min.X, P.X - HalfSize.X), math.min(Min.Y, P.Y - HalfSize.Y), math.min(Min.Z, P.Z - HalfSize.Z))
+                        Max = Vector3New(math.max(Max.X, P.X + HalfSize.X), math.max(Max.Y, P.Y + HalfSize.Y), math.max(Max.Z, P.Z + HalfSize.Z))
+                        Found = true
+                    end
+                end
+
+                if Found then
+                    local Size = Max - Min
+                    local Center = (Min + Max) * 0.5
+                    return CFrameNew(Center), Size
+                end
+            else
+                local Ok, CF, Size = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
+                if Ok and CF and Size then
+                    return CF, Size
+                end
             end
         end
 
