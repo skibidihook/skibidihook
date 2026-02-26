@@ -149,6 +149,9 @@ do
     end
 
     local function GetPlayerName(Player)
+        if Type(Player) == "table" and Player.Name then
+            return Player.Name
+        end
         if EspLibrary.Config.NameMode == "Username" then
             return Player.Name
         end
@@ -296,15 +299,31 @@ do
             PlayerESP.DrawingAddedConnections[i](Self)
         end
 
-        Self.Connections[#Self.Connections + 1] = Player.CharacterAdded:Connect(function(...)
-            return Self:CharacterAdded(...)
-        end)
-        Self.Connections[#Self.Connections + 1] = Player.CharacterRemoving:Connect(function(...)
-            return Self:CharacterRemoved(...)
-        end)
+        if Type(Player) == "userdata" then
+            Self.Connections[#Self.Connections + 1] = Player.CharacterAdded:Connect(function(...)
+                return Self:CharacterAdded(...)
+            end)
+            Self.Connections[#Self.Connections + 1] = Player.CharacterRemoving:Connect(function(...)
+                return Self:CharacterRemoved(...)
+            end)
 
-        if Player.Character then
-            Self:CharacterAdded(Player.Character, true)
+            if Player.Character then
+                Self:CharacterAdded(Player.Character, true)
+            end
+        elseif Type(Player) == "table" then
+            if Player.CharacterAdded then
+                Self.Connections[#Self.Connections + 1] = Player.CharacterAdded:Connect(function(...)
+                    return Self:CharacterAdded(...)
+                end)
+            end
+            if Player.CharacterRemoving then
+                Self.Connections[#Self.Connections + 1] = Player.CharacterRemoving:Connect(function(...)
+                    return Self:CharacterRemoved(...)
+                end)
+            end
+            if Player.Character then
+                Self:CharacterAdded(Player.Character, true)
+            end
         end
 
         PlayerESP.PlayerCache[Player] = Self
@@ -821,16 +840,489 @@ do
 
     EspLibrary.PlayerESP = PlayerESP
 
+    -- EntityESP
+    local EntityESP = {
+        EntityCache = {},
+        DrawingCache = {},
+        DrawingAddedConnections = {},
+    }
+    EntityESP.__index = EntityESP
+
+    EntityESP.OnDrawingAdded = function(Callback)
+        EntityESP.DrawingAddedConnections[#EntityESP.DrawingAddedConnections + 1] = Callback
+    end
+
+    function EntityESP:CreateDrawingCache()
+        local AllDrawings = {}
+        local Cfg = EspLibrary.Config
+
+        local Drawings = {
+            FullBox = { Lines = {}, Outlines = {} },
+
+            Name = CreateDrawing("Text", {
+                Visible = false,
+                Center = true,
+                Outline = true,
+                OutlineColor = COLOR_BLACK,
+                Color = self.Color or COLOR_WHITE,
+                Transparency = 1,
+                Size = Cfg.TextSize,
+                Text = self.Name or "",
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+
+            Distance = CreateDrawing("Text", {
+                Visible = false,
+                Center = true,
+                Outline = true,
+                OutlineColor = COLOR_BLACK,
+                Color = self.Color or COLOR_WHITE,
+                Transparency = 1,
+                Size = Cfg.TextSize,
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+        }
+
+        for i = 1, 4 do
+            Drawings.FullBox.Outlines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 2,
+                Color = COLOR_BLACK,
+                ZIndex = BaseZIndex,
+            }, AllDrawings)
+            Drawings.FullBox.Lines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Color = self.Color or COLOR_WHITE,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+
+        Drawings.All = AllDrawings
+        self.Drawings = Drawings
+        self.AllDrawings = AllDrawings
+    end
+
+    EntityESP.New = function(Entity, Color, Name)
+        local Self = setmetatable({
+            Entity = Entity,
+            Color = Color or COLOR_WHITE,
+            Name = Name or Entity.Name,
+            Connections = {},
+            Hidden = false,
+        }, EntityESP)
+
+        local Cache = EntityESP.DrawingCache[1]
+        if Cache then
+            TableRemove(EntityESP.DrawingCache, 1)
+            Cache.Name.Text = Self.Name
+            Cache.Name.Color = Self.Color
+            for i = 1, 4 do Cache.FullBox.Lines[i].Color = Self.Color end
+            Cache.Distance.Color = Self.Color
+            Self.AllDrawings = Cache.All
+            Self.Drawings = Cache
+        else
+            Self:CreateDrawingCache()
+        end
+
+        for i = 1, #EntityESP.DrawingAddedConnections do
+            EntityESP.DrawingAddedConnections[i](Self)
+        end
+
+        Self.Connections[#Self.Connections + 1] = Entity.AncestryChanged:Connect(function(_, Parent)
+            if not Parent then
+                EntityESP.Remove(Entity)
+            end
+        end)
+
+        EntityESP.EntityCache[Entity] = Self
+        return Self
+    end
+
+    EntityESP.Remove = function(Entity)
+        local Cache = EntityESP.EntityCache[Entity]
+        if not Cache then return end
+
+        EntityESP.EntityCache[Entity] = nil
+
+        if Cache.Connections then
+            for i = 1, #Cache.Connections do
+                Cache.Connections[i]:Disconnect()
+            end
+        end
+
+        if Cache.Drawings then
+            for i = 1, #Cache.AllDrawings do
+                Cache.AllDrawings[i].Visible = false
+            end
+            EntityESP.DrawingCache[#EntityESP.DrawingCache + 1] = Cache.Drawings
+        end
+    end
+
+    function EntityESP:HideDrawings()
+        if self.Hidden then return end
+        self.Hidden = true
+        for i = 1, #self.AllDrawings do
+            self.AllDrawings[i].Visible = false
+        end
+    end
+
+    function EntityESP:Loop(Settings, DistanceOverride)
+        local Entity = self.Entity
+        if not Entity or not Entity.Parent then
+            return EntityESP.Remove(Entity)
+        end
+
+        local BoxCF, BoxSize3 = Entity:GetBoundingBox()
+        local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
+
+        if not AnyInFront or MinZ <= 0 then
+            return self:HideDrawings()
+        end
+
+        local W = MaxX - MinX
+        local H = MaxY - MinY
+        if W <= 1 or H <= 1 or W ~= W or H ~= H then
+            return self:HideDrawings()
+        end
+
+        self.Hidden = false
+        local BoxPos2D = Vector2New(MinX, MinY)
+        local BoxSize2D = Vector2New(W, H)
+        local Center2D = BoxPos2D + (BoxSize2D * 0.5)
+        local Offset = BoxSize2D * 0.5
+
+        -- Render Box
+        local Drawings = self.Drawings
+        local FullLines = Drawings.FullBox.Lines
+        local FullOutlines = Drawings.FullBox.Outlines
+
+        if Settings.Box then
+            local P1 = Vector2New(MinX, MinY)
+            local P2 = Vector2New(MaxX, MinY)
+            local P3 = Vector2New(MaxX, MaxY)
+            local P4 = Vector2New(MinX, MaxY)
+
+            local Points = {P1, P2, P3, P4}
+            for i = 1, 4 do
+                local NextIdx = i % 4 + 1
+                FullOutlines[i].Visible = true
+                FullOutlines[i].From = Points[i]
+                FullOutlines[i].To = Points[NextIdx]
+                FullLines[i].Visible = true
+                FullLines[i].From = Points[i]
+                FullLines[i].To = Points[NextIdx]
+            end
+        else
+            for i = 1, 4 do
+                FullOutlines[i].Visible = false
+                FullLines[i].Visible = false
+            end
+        end
+
+        -- Render Name
+        if Settings.Name then
+            Drawings.Name.Visible = true
+            Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + Drawings.Name.Size)
+        else
+            Drawings.Name.Visible = false
+        end
+
+        -- Render Distance
+        if Settings.Distance then
+            local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - BoxCF.Position).Magnitude)
+            Drawings.Distance.Visible = true
+            Drawings.Distance.Position = Center2D + Vector2New(0, Offset.Y)
+            Drawings.Distance.Text = `[{Magnitude}]`
+        else
+            Drawings.Distance.Visible = false
+        end
+    end
+
+    EspLibrary.EntityESP = EntityESP
+
+    -- NPC_ESP
+    local NPC_ESP = {
+        NpcCache = {},
+        DrawingCache = {},
+        DrawingAddedConnections = {},
+    }
+    NPC_ESP.__index = NPC_ESP
+
+    NPC_ESP.OnDrawingAdded = function(Callback)
+        NPC_ESP.DrawingAddedConnections[#NPC_ESP.DrawingAddedConnections + 1] = Callback
+    end
+
+    function NPC_ESP:CreateDrawingCache()
+        local AllDrawings = {}
+        local Cfg = EspLibrary.Config
+
+        local Drawings = {
+            FullBox = { Lines = {}, Outlines = {} },
+
+            Name = CreateDrawing("Text", {
+                Visible = false,
+                Center = true,
+                Outline = true,
+                OutlineColor = COLOR_BLACK,
+                Color = self.Color or COLOR_WHITE,
+                Transparency = 1,
+                Size = Cfg.TextSize,
+                Text = self.Name or "",
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+
+            Distance = CreateDrawing("Text", {
+                Visible = false,
+                Center = true,
+                Outline = true,
+                OutlineColor = COLOR_BLACK,
+                Color = self.Color or COLOR_WHITE,
+                Transparency = 1,
+                Size = Cfg.TextSize,
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+
+            HealthBar = CreateDrawing("Square", {
+                Visible = false,
+                Thickness = 1,
+                Filled = true,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+
+            HealthBackground = CreateDrawing("Square", {
+                Visible = false,
+                Color = COLOR_BACKGROUND,
+                Transparency = 0.7,
+                Thickness = 1,
+                Filled = true,
+                ZIndex = BaseZIndex,
+            }, AllDrawings),
+        }
+
+        for i = 1, 4 do
+            Drawings.FullBox.Outlines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 2,
+                Color = COLOR_BLACK,
+                ZIndex = BaseZIndex,
+            }, AllDrawings)
+            Drawings.FullBox.Lines[i] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Color = self.Color or COLOR_WHITE,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+
+        Drawings.All = AllDrawings
+        self.Drawings = Drawings
+        self.AllDrawings = AllDrawings
+    end
+
+    NPC_ESP.New = function(Model, Color, Name)
+        local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+        if not Humanoid then return end
+
+        local Self = setmetatable({
+            Model = Model,
+            Humanoid = Humanoid,
+            Color = Color or COLOR_WHITE,
+            Name = Name or Model.Name,
+            Connections = {},
+            Hidden = false,
+            HealthPercentage = 1,
+        }, NPC_ESP)
+
+        local Cache = NPC_ESP.DrawingCache[1]
+        if Cache then
+            TableRemove(NPC_ESP.DrawingCache, 1)
+            Cache.Name.Text = Self.Name
+            Cache.Name.Color = Self.Color
+            for i = 1, 4 do Cache.FullBox.Lines[i].Color = Self.Color end
+            Cache.Distance.Color = Self.Color
+            Self.AllDrawings = Cache.All
+            Self.Drawings = Cache
+        else
+            Self:CreateDrawingCache()
+        end
+
+        for i = 1, #NPC_ESP.DrawingAddedConnections do
+            NPC_ESP.DrawingAddedConnections[i](Self)
+        end
+
+        local function UpdateHealth()
+            Self.HealthPercentage = (Humanoid.MaxHealth > 0 and (Humanoid.Health / Humanoid.MaxHealth)) or 0
+        end
+        UpdateHealth()
+
+        Self.Connections[#Self.Connections + 1] = Humanoid:GetPropertyChangedSignal("Health"):Connect(UpdateHealth)
+        Self.Connections[#Self.Connections + 1] = Model.AncestryChanged:Connect(function(_, Parent)
+            if not Parent then
+                NPC_ESP.Remove(Model)
+            end
+        end)
+
+        NPC_ESP.NpcCache[Model] = Self
+        return Self
+    end
+
+    NPC_ESP.Remove = function(Model)
+        local Cache = NPC_ESP.NpcCache[Model]
+        if not Cache then return end
+
+        NPC_ESP.NpcCache[Model] = nil
+
+        if Cache.Connections then
+            for i = 1, #Cache.Connections do
+                Cache.Connections[i]:Disconnect()
+            end
+        end
+
+        if Cache.Drawings then
+            for i = 1, #Cache.AllDrawings do
+                Cache.AllDrawings[i].Visible = false
+            end
+            NPC_ESP.DrawingCache[#NPC_ESP.DrawingCache + 1] = Cache.Drawings
+        end
+    end
+
+    function NPC_ESP:HideDrawings()
+        if self.Hidden then return end
+        self.Hidden = true
+        for i = 1, #self.AllDrawings do
+            self.AllDrawings[i].Visible = false
+        end
+    end
+
+    function NPC_ESP:Loop(Settings, DistanceOverride)
+        local Model = self.Model
+        local Humanoid = self.Humanoid
+        if not Model or not Model.Parent or not Humanoid then
+            return NPC_ESP.Remove(Model)
+        end
+
+        local BoxCF, BoxSize3 = GetBoundingBoxSafe(Model, Humanoid)
+        if not BoxCF or not BoxSize3 then
+            return self:HideDrawings()
+        end
+
+        local MinX, MinY, MaxX, MaxY, AnyInFront, MinZ = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
+
+        if not AnyInFront or MinZ <= 0 then
+            return self:HideDrawings()
+        end
+
+        local W = MaxX - MinX
+        local H = MaxY - MinY
+        if W <= 1 or H <= 1 or W ~= W or H ~= H then
+            return self:HideDrawings()
+        end
+
+        self.Hidden = false
+        local BoxPos2D = Vector2New(MinX, MinY)
+        local BoxSize2D = Vector2New(W, H)
+        local Center2D = BoxPos2D + (BoxSize2D * 0.5)
+        local Offset = BoxSize2D * 0.5
+
+        local Drawings = self.Drawings
+        local FullLines = Drawings.FullBox.Lines
+        local FullOutlines = Drawings.FullBox.Outlines
+
+        if Settings.Box then
+            local P1 = Vector2New(MinX, MinY)
+            local P2 = Vector2New(MaxX, MinY)
+            local P3 = Vector2New(MaxX, MaxY)
+            local P4 = Vector2New(MinX, MaxY)
+
+            local Points = {P1, P2, P3, P4}
+            for i = 1, 4 do
+                local NextIdx = i % 4 + 1
+                FullOutlines[i].Visible = true
+                FullOutlines[i].From = Points[i]
+                FullOutlines[i].To = Points[NextIdx]
+                FullLines[i].Visible = true
+                FullLines[i].From = Points[i]
+                FullLines[i].To = Points[NextIdx]
+            end
+        else
+            for i = 1, 4 do
+                FullOutlines[i].Visible = false
+                FullLines[i].Visible = false
+            end
+        end
+
+        if Settings.Name then
+            Drawings.Name.Visible = true
+            Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + Drawings.Name.Size)
+        else
+            Drawings.Name.Visible = false
+        end
+
+        if Settings.Distance then
+            local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - BoxCF.Position).Magnitude)
+            Drawings.Distance.Visible = true
+            Drawings.Distance.Position = Center2D + Vector2New(0, Offset.Y)
+            Drawings.Distance.Text = `[{Magnitude}]`
+        else
+            Drawings.Distance.Visible = false
+        end
+
+        if Settings.Healthbar then
+            local HealthBar = Drawings.HealthBar
+            local HealthBackground = Drawings.HealthBackground
+
+            HealthBar.Visible = true
+            HealthBackground.Visible = true
+
+            local BasePosition = Center2D - Offset - Vector2New(5, 0)
+            local BaseSize = Vector2New(3, Offset.Y * 2)
+
+            local HealthLength = (BaseSize.Y - 2) * self.HealthPercentage
+            local HealthPosition = BasePosition + Vector2New(1, 1 + (BaseSize.Y - 2 - HealthLength))
+            local HealthSize = Vector2New(1, HealthLength)
+
+            HealthBackground.Position = BasePosition
+            HealthBackground.Size = BaseSize
+
+            HealthBar.Position = HealthPosition
+            HealthBar.Size = HealthSize
+            HealthBar.Color = COLOR_RED:Lerp(COLOR_GREEN, self.HealthPercentage)
+        else
+            Drawings.HealthBar.Visible = false
+            Drawings.HealthBackground.Visible = false
+        end
+    end
+
+    EspLibrary.NPC_ESP = NPC_ESP
+
     function EspLibrary:Unload()
         for _, PlayerEspInstance in Pairs(PlayerESP.PlayerCache) do
             PlayerESP.Remove(PlayerEspInstance.Player)
         end
-        for _, CachedDrawings in IPairs(PlayerESP.DrawingCache) do
-            for _, DrawingObject in IPairs(CachedDrawings.All) do
-                DrawingObject:Remove()
-            end
+        for _, EntityEspInstance in Pairs(EntityESP.EntityCache) do
+            EntityESP.Remove(EntityEspInstance.Entity)
         end
-        table.clear(PlayerESP.DrawingCache)
+        for _, NpcEspInstance in Pairs(NPC_ESP.NpcCache) do
+            NPC_ESP.Remove(NpcEspInstance.Model)
+        end
+
+        local function ClearCache(Cache)
+            for _, CachedDrawings in IPairs(Cache) do
+                for _, DrawingObject in IPairs(CachedDrawings.All) do
+                    DrawingObject:Remove()
+                end
+            end
+            table.clear(Cache)
+        end
+
+        ClearCache(PlayerESP.DrawingCache)
+        ClearCache(EntityESP.DrawingCache)
+        ClearCache(NPC_ESP.DrawingCache)
     end
 end
 return EspLibrary, 3
