@@ -86,13 +86,10 @@ do
     end
 
     local function GetBoundingBoxSafe(Target, Humanoid, IsCharacter)
-        local CF, Size
-
         if Target and IsCharacter then
-            local Ok, TmpSize = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
-            if Ok and TmpSize then
-                local Pivot = Target:IsA("Humanoid") and Target.Parent:GetPivot() or Target:GetPivot()
-                return Pivot, TmpSize
+            local Ok, CF, Size = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
+            if Ok and CF and Size then
+                return CF, Size
             end
         end
 
@@ -804,12 +801,12 @@ do
             return self:HideDrawings()
         end
 
-        local _, Size3D = GetBoundingBoxSafe(Humanoid, Humanoid, true)
+        local CF, Size3D = GetBoundingBoxSafe(Character, Humanoid, true)
         if not Size3D then
             return self:HideDrawings()
         end
 
-        local GoalPos = Current.RootPart.Position
+        local GoalPos = CF.Position
         local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, GoalPos)
         if not OnScreen then
             return self:HideDrawings()
@@ -818,7 +815,7 @@ do
         
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local CameraCF = CurrentCamera.CFrame
-        local BoxCF = CFrame.new(GoalPos, CameraCF.Position)
+        local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
 
         local X, Y = -Size3D.X / 2, Size3D.Y / 2
         local TopRight2D_Obj, TR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, Y, 0)).Position)
@@ -1424,12 +1421,12 @@ do
             return NPC_ESP.Remove(Model)
         end
 
-        local _, Size3D = GetBoundingBoxSafe(Humanoid, Humanoid, true)
-        if not Size3D then
+        local CF, Size3D = GetBoundingBoxSafe(Model, Humanoid, true)
+        if not CF or not Size3D then
             return self:HideDrawings()
         end
 
-        local GoalPos = Model:GetPivot().Position
+        local GoalPos = CF.Position
         local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, GoalPos)
         if not OnScreen then
             return self:HideDrawings()
@@ -1438,7 +1435,7 @@ do
 
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local CameraCF = CurrentCamera.CFrame
-        local BoxCF = CFrame.new(GoalPos, CameraCF.Position)
+        local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
 
         local X, Y = -Size3D.X / 2, Size3D.Y / 2
         local TopRight2D_Obj, TR_Visible = WorldToViewportPoint(CurrentCamera, (BoxCF * CFrame.new(X, Y, 0)).Position)
