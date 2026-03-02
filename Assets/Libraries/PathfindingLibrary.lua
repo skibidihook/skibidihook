@@ -2,9 +2,9 @@ local PathfindingLibrary = {}
 
 local Workspace = game:GetService("Workspace")
 
-local PATH_STEP_SIZE = 3
+local PATH_STEP_SIZE = 4
 local MAX_SEARCH_DEPTH = 3000
-local MAX_SLOPE_HEIGHT = 5
+local MAX_SLOPE_HEIGHT = 4
 local MAX_DROP_HEIGHT = 8
 
 local function CreateNode(Position, G, H, Parent)
@@ -43,10 +43,10 @@ local function GetNeighbors(Position)
         local RayOrigin = TargetPos + Vector3.new(0, MAX_SLOPE_HEIGHT + 2, 0)
         local RayDir = Vector3.new(0, -MAX_DROP_HEIGHT - MAX_SLOPE_HEIGHT - 4, 0)
         
-        local GroundResult = Workspace:Blockcast(CFrame.new(RayOrigin), Vector3.new(1.5, 0.1, 1.5), RayDir, RayParams)
+        local GroundResult = Workspace:Raycast(RayOrigin, RayDir, RayParams)
         
         if GroundResult and GroundResult.Instance and GroundResult.Instance.CanCollide then
-            local GroundHit = Vector3.new(TargetPos.X, GroundResult.Position.Y, TargetPos.Z)
+            local GroundHit = GroundResult.Position
             local HeightDiff = GroundHit.Y - Position.Y
             
             if HeightDiff <= MAX_SLOPE_HEIGHT and HeightDiff >= -MAX_DROP_HEIGHT then
