@@ -2,8 +2,8 @@ local PathfindingLibrary = {}
 
 local Workspace = game:GetService("Workspace")
 
-local PATH_STEP_SIZE = 2
-local MAX_SEARCH_DEPTH = 5000
+local PATH_STEP_SIZE = 3
+local MAX_SEARCH_DEPTH = 3000
 local MAX_SLOPE_HEIGHT = 5
 local MAX_DROP_HEIGHT = 8
 
@@ -21,7 +21,7 @@ local function GetKey(Position)
     return math.round(Position.X) .. "," .. math.round(Position.Y) .. "," .. math.round(Position.Z)
 end
 
-local function GetNeighbors(Position, IgnoreList)
+local function GetNeighbors(Position)
     local Neighbors = {}
     local Offsets = {
         Vector3.new(PATH_STEP_SIZE, 0, 0),
@@ -36,17 +36,17 @@ local function GetNeighbors(Position, IgnoreList)
 
     local RayParams = RaycastParams.new()
     RayParams.FilterType = Enum.RaycastFilterType.Exclude
-    RayParams.FilterDescendantsInstances = IgnoreList or {}
 
     for _, offset in ipairs(Offsets) do
         local TargetPos = Position + offset
         
         local RayOrigin = TargetPos + Vector3.new(0, MAX_SLOPE_HEIGHT + 2, 0)
+        local RayDir = Vector3.new(0, -MAX_DROP_HEIGHT - MAX_SLOPE_HEIGHT - 4, 0)
         
-        local GroundResult = Workspace:Spherecast(RayOrigin, 1.25, Vector3.new(0, -MAX_DROP_HEIGHT - MAX_SLOPE_HEIGHT - 4, 0), RayParams)
+        local GroundResult = Workspace:Blockcast(CFrame.new(RayOrigin), Vector3.new(1.5, 0.1, 1.5), RayDir, RayParams)
         
         if GroundResult and GroundResult.Instance and GroundResult.Instance.CanCollide then
-            local GroundHit = GroundResult.Position
+            local GroundHit = Vector3.new(TargetPos.X, GroundResult.Position.Y, TargetPos.Z)
             local HeightDiff = GroundHit.Y - Position.Y
             
             if HeightDiff <= MAX_SLOPE_HEIGHT and HeightDiff >= -MAX_DROP_HEIGHT then
@@ -54,7 +54,7 @@ local function GetNeighbors(Position, IgnoreList)
                 local HighestY = math.max(Position.Y, GroundHit.Y)
                 local LosOrigin = Vector3.new(Position.X, HighestY + 2.5, Position.Z)
                 local LosDirection = Vector3.new(GroundHit.X, HighestY + 2.5, GroundHit.Z) - LosOrigin
-                local LosResult = Workspace:Spherecast(LosOrigin, 1.25, LosDirection, RayParams)
+                local LosResult = Workspace:Raycast(LosOrigin, LosDirection, RayParams)
                 
                 if not LosResult or not LosResult.Instance.CanCollide then
                     table.insert(Neighbors, GroundHit)
@@ -69,7 +69,7 @@ local function CalculateH(Pos1, Pos2)
     return (Pos1 - Pos2).Magnitude
 end
 
-local function SmoothPath(PathArray, IgnoreList)
+local function SmoothPath(PathArray)
     if not PathArray or #PathArray <= 2 then return PathArray end
     
     local SmoothedPath = {PathArray[1]}
@@ -77,7 +77,6 @@ local function SmoothPath(PathArray, IgnoreList)
     
     local RayParams = RaycastParams.new()
     RayParams.FilterType = Enum.RaycastFilterType.Exclude
-    RayParams.FilterDescendantsInstances = IgnoreList or {}
 
     while CurrentIndex < #PathArray do
         local FurthestVisibleIndex = CurrentIndex + 1
@@ -92,7 +91,7 @@ local function SmoothPath(PathArray, IgnoreList)
             
             local TargetDist = LosDirection.Magnitude
             if TargetDist > 0 then
-                local LosResult = Workspace:Spherecast(LosOrigin, 1.25, LosDirection, RayParams)
+                local LosResult = Workspace:Raycast(LosOrigin, LosDirection, RayParams)
                 if not LosResult or not LosResult.Instance.CanCollide then
                     FurthestVisibleIndex = i
                 else
@@ -108,22 +107,7 @@ local function SmoothPath(PathArray, IgnoreList)
     return SmoothedPath
 end
 
-local function GetCharacterIgnoreList()
-    local PlayersService = game:GetService("Players")
-    local Ignored = {}
-    for _, player in ipairs(PlayersService:GetPlayers()) do
-        if player.Character then
-            table.insert(Ignored, player.Character)
-        end
-    end
-    if Workspace:FindFirstChild("Ignore") then
-        table.insert(Ignored, Workspace.Ignore)
-    end
-    return Ignored
-end
-
 function PathfindingLibrary.ComputePath(StartPos, EndPos)
-    local IgnoreList = GetCharacterIgnoreList()
     local OpenList = {}
     local NodeMap = {}
     local ClosedList = {}
@@ -162,7 +146,7 @@ function PathfindingLibrary.ComputePath(StartPos, EndPos)
                 Trace = Trace.Parent
             end
             table.insert(Path, EndPos)
-            return SmoothPath(Path, IgnoreList)
+            return SmoothPath(Path)
         end
         
         OpenList[CurrentIndex] = OpenList[#OpenList]
@@ -172,7 +156,7 @@ function PathfindingLibrary.ComputePath(StartPos, EndPos)
         NodeMap[CurrentKey] = nil
         ClosedList[CurrentKey] = true
         
-        for _, NeighborPos in ipairs(GetNeighbors(CurrentNode.Position, IgnoreList)) do
+        for _, NeighborPos in ipairs(GetNeighbors(CurrentNode.Position)) do
             local RoundedPosStr = GetKey(NeighborPos)
             
             if not ClosedList[RoundedPosStr] then
