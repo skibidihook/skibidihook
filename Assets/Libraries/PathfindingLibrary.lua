@@ -2,9 +2,9 @@ local PathfindingLibrary = {}
 
 local Workspace = game:GetService("Workspace")
 
-local PATH_STEP_SIZE = 4
+local PATH_STEP_SIZE = 3
 local MAX_SEARCH_DEPTH = 3000
-local MAX_SLOPE_HEIGHT = 4
+local MAX_SLOPE_HEIGHT = 6
 local MAX_DROP_HEIGHT = 8
 
 local function CreateNode(Position, G, H, Parent)
@@ -93,7 +93,32 @@ local function SmoothPath(PathArray)
             if TargetDist > 0 then
                 local LosResult = Workspace:Raycast(LosOrigin, LosDirection, RayParams)
                 if not LosResult or not LosResult.Instance.CanCollide then
-                    FurthestVisibleIndex = i
+                    local IsValid = true
+                    local Steps = math.ceil(TargetDist / PATH_STEP_SIZE)
+                    for step = 1, Steps - 1 do
+                        local Fraction = step / Steps
+                        local Interp = Pos1:Lerp(Pos2, Fraction)
+                        local CheckOrigin = Vector3.new(Interp.X, HighestY + 2.5, Interp.Z)
+                        local CheckDir = Vector3.new(0, -MAX_DROP_HEIGHT - MAX_SLOPE_HEIGHT - 6, 0)
+                        local CheckRay = Workspace:Raycast(CheckOrigin, CheckDir, RayParams)
+                        
+                        if not CheckRay or not CheckRay.Instance.CanCollide then
+                            IsValid = false
+                            break
+                        end
+                        
+                        local ExpectedY = Pos1.Y + (Pos2.Y - Pos1.Y) * Fraction
+                        if math.abs(CheckRay.Position.Y - ExpectedY) > MAX_SLOPE_HEIGHT + 1 then
+                            IsValid = false
+                            break
+                        end
+                    end
+                    
+                    if IsValid then
+                        FurthestVisibleIndex = i
+                    else
+                        break
+                    end
                 else
                     break
                 end
