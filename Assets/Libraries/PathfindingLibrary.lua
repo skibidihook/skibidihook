@@ -17,6 +17,10 @@ local function CreateNode(Position, G, H, Parent)
     }
 end
 
+local function GetKey(Position)
+    return math.round(Position.X) .. "," .. math.round(Position.Y) .. "," .. math.round(Position.Z)
+end
+
 local function GetNeighbors(Position)
     local Neighbors = {}
     local Offsets = {
@@ -45,8 +49,9 @@ local function GetNeighbors(Position)
             
             if HeightDiff <= MAX_SLOPE_HEIGHT and HeightDiff >= -MAX_DROP_HEIGHT then
                 
-                local LosOrigin = Position + Vector3.new(0, 2, 0)
-                local LosDirection = (GroundHit + Vector3.new(0, 2, 0)) - LosOrigin
+                local HighestY = math.max(Position.Y, GroundHit.Y)
+                local LosOrigin = Vector3.new(Position.X, HighestY + 2.5, Position.Z)
+                local LosDirection = Vector3.new(GroundHit.X, HighestY + 2.5, GroundHit.Z) - LosOrigin
                 local LosResult = Workspace:Raycast(LosOrigin, LosDirection, RayParams)
                 
                 if not LosResult or not LosResult.Instance.CanCollide then
@@ -64,6 +69,7 @@ end
 
 function PathfindingLibrary.ComputePath(StartPos, EndPos)
     local OpenList = {}
+    local NodeMap = {}
     local ClosedList = {}
     
     local StartG = 0
@@ -71,6 +77,7 @@ function PathfindingLibrary.ComputePath(StartPos, EndPos)
     local StartNode = CreateNode(StartPos, StartG, StartH, nil)
     
     table.insert(OpenList, StartNode)
+    NodeMap[GetKey(StartPos)] = StartNode
     
     local Iterations = 0
     
@@ -102,35 +109,31 @@ function PathfindingLibrary.ComputePath(StartPos, EndPos)
             return Path
         end
         
-        table.remove(OpenList, CurrentIndex)
-        ClosedList[tostring(Vector3.new(math.round(CurrentNode.Position.X), math.round(CurrentNode.Position.Y), math.round(CurrentNode.Position.Z)))] = true
+        OpenList[CurrentIndex] = OpenList[#OpenList]
+        OpenList[#OpenList] = nil
+        
+        local CurrentKey = GetKey(CurrentNode.Position)
+        NodeMap[CurrentKey] = nil
+        ClosedList[CurrentKey] = true
         
         for _, NeighborPos in ipairs(GetNeighbors(CurrentNode.Position)) do
-            local RoundedPosStr = tostring(Vector3.new(math.round(NeighborPos.X), math.round(NeighborPos.Y), math.round(NeighborPos.Z)))
+            local RoundedPosStr = GetKey(NeighborPos)
             
             if not ClosedList[RoundedPosStr] then
                 local GScore = CurrentNode.G + (NeighborPos - CurrentNode.Position).Magnitude
-                local HScore = CalculateH(NeighborPos, EndPos)
+                local OpenNode = NodeMap[RoundedPosStr]
                 
-                local InOpenList = false
-                local OpenIndex = -1
-                for i, OpenNode in ipairs(OpenList) do
-                    if tostring(Vector3.new(math.round(OpenNode.Position.X), math.round(OpenNode.Position.Y), math.round(OpenNode.Position.Z))) == RoundedPosStr then
-                        InOpenList = true
-                        OpenIndex = i
-                        break
-                    end
-                end
-                
-                if InOpenList then
-                    if GScore < OpenList[OpenIndex].G then
-                        OpenList[OpenIndex].G = GScore
-                        OpenList[OpenIndex].F = GScore + OpenList[OpenIndex].H
-                        OpenList[OpenIndex].Parent = CurrentNode
+                if OpenNode then
+                    if GScore < OpenNode.G then
+                        OpenNode.G = GScore
+                        OpenNode.F = GScore + OpenNode.H
+                        OpenNode.Parent = CurrentNode
                     end
                 else
+                    local HScore = CalculateH(NeighborPos, EndPos)
                     local NewNode = CreateNode(NeighborPos, GScore, HScore, CurrentNode)
                     table.insert(OpenList, NewNode)
+                    NodeMap[RoundedPosStr] = NewNode
                 end
             end
         end
