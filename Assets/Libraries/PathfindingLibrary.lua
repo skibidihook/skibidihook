@@ -67,6 +67,44 @@ local function CalculateH(Pos1, Pos2)
     return (Pos1 - Pos2).Magnitude
 end
 
+local function SmoothPath(PathArray)
+    if not PathArray or #PathArray <= 2 then return PathArray end
+    
+    local SmoothedPath = {PathArray[1]}
+    local CurrentIndex = 1
+    
+    local RayParams = RaycastParams.new()
+    RayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    while CurrentIndex < #PathArray do
+        local FurthestVisibleIndex = CurrentIndex + 1
+        
+        for i = CurrentIndex + 2, #PathArray do
+            local Pos1 = PathArray[CurrentIndex]
+            local Pos2 = PathArray[i]
+            
+            local HighestY = math.max(Pos1.Y, Pos2.Y)
+            local LosOrigin = Vector3.new(Pos1.X, HighestY + 2.5, Pos1.Z)
+            local LosDirection = Vector3.new(Pos2.X, HighestY + 2.5, Pos2.Z) - LosOrigin
+            
+            local TargetDist = LosDirection.Magnitude
+            if TargetDist > 0 then
+                local LosResult = Workspace:Raycast(LosOrigin, LosDirection, RayParams)
+                if not LosResult or not LosResult.Instance.CanCollide then
+                    FurthestVisibleIndex = i
+                else
+                    break
+                end
+            end
+        end
+        
+        table.insert(SmoothedPath, PathArray[FurthestVisibleIndex])
+        CurrentIndex = FurthestVisibleIndex
+    end
+    
+    return SmoothedPath
+end
+
 function PathfindingLibrary.ComputePath(StartPos, EndPos)
     local OpenList = {}
     local NodeMap = {}
@@ -106,7 +144,7 @@ function PathfindingLibrary.ComputePath(StartPos, EndPos)
                 Trace = Trace.Parent
             end
             table.insert(Path, EndPos)
-            return Path
+            return SmoothPath(Path)
         end
         
         OpenList[CurrentIndex] = OpenList[#OpenList]
