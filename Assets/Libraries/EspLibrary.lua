@@ -641,7 +641,7 @@ do
         end
         Name.Visible = true
         Name.Text = GetPlayerName(self.Player)
-        Name.Position = Vector2Pos - Vector2New(0, Offset.Y + Name.Size)
+        Name.Position = Vector2Pos - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
     end
 
     function PlayerESP:RenderWeapon(Center2D, Offset, Enabled, BottomYOffset)
@@ -1122,7 +1122,7 @@ do
 
         if Settings.Name then
             Drawings.Name.Visible = true
-            Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + Drawings.Name.Size)
+            Drawings.Name.Position = Center2D - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
         else
             Drawings.Name.Visible = false
         end
@@ -1489,7 +1489,7 @@ do
             return
         end
         NameText.Visible = true
-        NameText.Position = Center2D - Vector2New(0, Offset.Y + NameText.Size)
+        NameText.Position = Center2D - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
         NameText.Text = self.Name or "NPC"
     end
 
