@@ -1,1 +1,0 @@
--- they took down their script :skull:
