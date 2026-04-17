@@ -127,7 +127,7 @@ do
             end
             local RigType = Humanoid and Humanoid.RigType
             if RigType == EnumHumanoidRigTypeR15 then
-                local Ok, CF, Size = ypcall(function() return Target:ComputeR15BodyBoundingBox() end)
+                local Ok, CF, Size = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
                 if Ok and CF and Size then
                     return CF, Size
                 end
@@ -150,18 +150,18 @@ do
                     return ComputeBoundingBoxFromParts(Target:GetChildren(), Min, Max)
                 end
             else
-                local Ok, CF, Size = ypcall(function() return Target:ComputeR15BodyBoundingBox() end)
+                local Ok, CF, Size = pcall(function() return Target:ComputeR15BodyBoundingBox() end)
                 if Ok and CF and Size then
                     return CF, Size
                 end
-                local Ok2, TmpCF, TmpSize = ypcall(Target.GetBoundingBox, Target)
+                local Ok2, TmpCF, TmpSize = pcall(Target.GetBoundingBox, Target)
                 if Ok2 and TmpCF and TmpSize then
                     return TmpCF, TmpSize
                 end
             end
         end
         if Target and Target:IsA("Model") then
-            local Ok, TmpCF, TmpSize = ypcall(Target.GetBoundingBox, Target)
+            local Ok, TmpCF, TmpSize = pcall(Target.GetBoundingBox, Target)
             if Ok and TmpCF and TmpSize then
                 return TmpCF, TmpSize
             end
@@ -677,7 +677,7 @@ do
         table.clear(VisibleItemsBuffer)
         local Items = nil
         if Type(FlagsSettings.Builder) == "function" then
-            local Ok, Result = ypcall(function() return FlagsSettings.Builder(self) end)
+            local Ok, Result = pcall(function() return FlagsSettings.Builder(self) end)
             if Ok and Type(Result) == "table" then
                 Items = Result
             end
@@ -784,6 +784,7 @@ do
     end
 
     EspLibrary.PlayerEsp = PlayerEsp
+    EspLibrary.PlayerESP = PlayerEsp
 
     local EntityEsp = {
         EntityCache = {},
@@ -1420,7 +1421,7 @@ do
         table.clear(VisibleItemsBuffer)
         local Items = nil
         if Type(FlagsSettings.Builder) == "function" then
-            local Ok, Result = ypcall(function() return FlagsSettings.Builder(self) end)
+            local Ok, Result = pcall(function() return FlagsSettings.Builder(self) end)
             if Ok and Type(Result) == "table" then
                 Items = Result
             end
