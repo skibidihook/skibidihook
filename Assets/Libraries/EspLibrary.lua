@@ -613,6 +613,7 @@ function PlayerESP:OnCharacterRemoved()
 end
 
 function PlayerESP:OnChildAdded(Child)
+    if not self.Current then return end
     if Child:IsA("Humanoid") then
         self.Current.Humanoid = Child
     end
