@@ -403,7 +403,8 @@ function PlayerESP.New(Player)
     end
 
     for i = 1, #PlayerESP.DrawingAddedConnections do
-        PlayerESP.DrawingAddedConnections[i](Self)
+        local Callback = PlayerESP.DrawingAddedConnections[i]
+        if Callback then Callback(Self) end
     end
 
     if Typeof(Player) == "Instance" then
@@ -613,24 +614,30 @@ function PlayerESP:OnCharacterRemoved()
 end
 
 function PlayerESP:OnChildAdded(Child)
-    if not self.Current then return end
+    if not self or not self.Current then return end
     if Child:IsA("Humanoid") then
         self.Current.Humanoid = Child
     end
     for i = 1, #PlayerESP.ChildAddedConnections do
-        PlayerESP.ChildAddedConnections[i](self, Child)
+        local Callback = PlayerESP.ChildAddedConnections[i]
+        if Callback then
+            Callback(self, Child)
+        end
     end
 end
 
 function PlayerESP:OnChildRemoved(Child)
-    if not self.Current then return end
+    if not self or not self.Current then return end
     if Child == self.Current.Humanoid then
         self.Current.Humanoid = nil
     elseif Child == self.Current.RootPart then
         self.Current.RootPart = nil
     end
     for i = 1, #PlayerESP.ChildRemovedConnections do
-        PlayerESP.ChildRemovedConnections[i](self, Child)
+        local Callback = PlayerESP.ChildRemovedConnections[i]
+        if Callback then
+            Callback(self, Child)
+        end
     end
 end
 
@@ -817,7 +824,8 @@ function EntityESP.New(Entity, Color, Name)
     end
 
     for i = 1, #EntityESP.DrawingAddedConnections do
-        EntityESP.DrawingAddedConnections[i](Self)
+        local Callback = EntityESP.DrawingAddedConnections[i]
+        if Callback then Callback(Self) end
     end
 
     EntityESP.Cache[Entity] = Self
@@ -1027,7 +1035,8 @@ function NPC_ESP.New(Model, Color, Name)
     end
 
     for i = 1, #NPC_ESP.DrawingAddedConnections do
-        NPC_ESP.DrawingAddedConnections[i](Self)
+        local Callback = NPC_ESP.DrawingAddedConnections[i]
+        if Callback then Callback(Self) end
     end
 
     local function SetupHumanoid(Humanoid)
