@@ -601,7 +601,8 @@ function PlayerESP:OnCharacterAdded(Character, FirstTime)
         if FirstTime then
             for _, Child in IPairs(Character:GetChildren()) do
                 for j = 1, #PlayerESP.ChildAddedConnections do
-                    PlayerESP.ChildAddedConnections[j](self, Child)
+                    local Callback = PlayerESP.ChildAddedConnections[j]
+                    if Callback then Callback(self, Child) end
                 end
             end
         end
