@@ -64,7 +64,7 @@ EspLibrary.Config = {
     BoxCornerWidthScale = 0.25,
     BoxCornerHeightScale = 0.25,
     PixelSnap = true,
-    NameMode = "DisplayName",
+    NameMode = "Username",
 }
 
 do
