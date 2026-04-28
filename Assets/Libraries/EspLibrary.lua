@@ -57,11 +57,7 @@ EspLibrary.Config = {
 	HeadDotRadius = 4,
 }
 
-local function GetBoundingBoxSafe(Character, Humanoid)
-	if Humanoid and Humanoid.RigType == EnumHumanoidRigTypeR15 then
-		local Ok, CF, Size = pcall(Character.ComputeR15BodyBoundingBox, Character)
-		if Ok and CF then return CF, Size end
-	end
+local function GetBoundingBoxSafe(Character, _Humanoid)
 	local Whitelist = EspLibrary.CharacterWhitelist
 	local Min = Vector3New(MathHuge, MathHuge, MathHuge)
 	local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
