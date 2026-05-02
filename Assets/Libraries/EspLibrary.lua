@@ -35,7 +35,7 @@ local function CreateDrawing(DrawingType, Properties, Container)
     return DrawingObject
 end
 
-local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 2
+local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 0
 local GlobalSize = (getgenv and getgenv().GLOBAL_SIZE) or _G.GLOBAL_SIZE or 13
 local BaseZIndex = 1
 
