@@ -9,17 +9,12 @@ local Vector3New    = Vector3.new
 local Color3New     = Color3.new
 local TableRemove   = table.remove
 local MathFloor     = math.floor
-local MathClamp     = math.clamp
 local MathRound     = math.round
 local MathHuge      = math.huge
-local MathMin       = math.min
 local MathMax       = math.max
 local MathAbs       = math.abs
 local CFrameNew     = CFrame.new
 local Type          = type
-
-local EnumHumanoidRigTypeR6  = Enum.HumanoidRigType.R6
-local EnumHumanoidRigTypeR15 = Enum.HumanoidRigType.R15
 
 local ColorBlack     = Color3New(0, 0, 0)
 local ColorWhite     = Color3New(1, 1, 1)
@@ -40,7 +35,7 @@ local function CreateDrawing(DrawingType, Properties, Container)
     return DrawingObject
 end
 
-local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 3
+local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 2
 local GlobalSize = (getgenv and getgenv().GLOBAL_SIZE) or _G.GLOBAL_SIZE or 13
 local BaseZIndex = 1
 
@@ -82,72 +77,30 @@ do
         local Conns = PlayerEsp.DrawingAddedConnections
         Conns[#Conns + 1] = Callback
     end
-
-    local function ComputeBoundingBoxFromParts(Parts, Min, Max)
-        for _, Part in next, Parts do
-            if Part:IsA("BasePart") then
-                local Size = Part.Size
-                local P = Part.CFrame.Position
-                local HX, HY, HZ = Size.X * 0.5, Size.Y * 0.5, Size.Z * 0.5
-                Min = Vector3New(MathMin(Min.X, P.X - HX), MathMin(Min.Y, P.Y - HY), MathMin(Min.Z, P.Z - HZ))
-                Max = Vector3New(MathMax(Max.X, P.X + HX), MathMax(Max.Y, P.Y + HY), MathMax(Max.Z, P.Z + HZ))
-            end
+    local function GetBoundingBoxSafe(Target, _, IsCharacter)
+        if not Target then return nil, nil end
+        local Min = Vector3New(MathHuge,  MathHuge,  MathHuge)
+        local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
+        local Found = false
+        local Whitelist = IsCharacter and EspLibrary.CharacterWhitelist
+        for _, Part in next, Target:GetChildren() do
+            if not Part:IsA("BasePart") then continue end
+            if Whitelist and not Whitelist[Part.Name] then continue end
+            local P  = Part.CFrame.Position
+            local HX = Part.Size.X * 0.5
+            local HY = Part.Size.Y * 0.5
+            local HZ = Part.Size.Z * 0.5
+            if P.X - HX < Min.X then Min = Vector3New(P.X - HX, Min.Y, Min.Z) end
+            if P.Y - HY < Min.Y then Min = Vector3New(Min.X, P.Y - HY, Min.Z) end
+            if P.Z - HZ < Min.Z then Min = Vector3New(Min.X, Min.Y, P.Z - HZ) end
+            if P.X + HX > Max.X then Max = Vector3New(P.X + HX, Max.Y, Max.Z) end
+            if P.Y + HY > Max.Y then Max = Vector3New(Max.X, P.Y + HY, Max.Z) end
+            if P.Z + HZ > Max.Z then Max = Vector3New(Max.X, Max.Y, P.Z + HZ) end
+            Found = true
         end
-        return CFrameNew((Min + Max) * 0.5), Max - Min
-    end
-
-    local function GetBoundingBoxSafe(Target, Humanoid, IsCharacter)
-        if Target and IsCharacter then
-            local Whitelist = EspLibrary.CharacterWhitelist
-            if Whitelist then
-                local Min = Vector3New(MathHuge, MathHuge, MathHuge)
-                local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
-                local Found = false
-                for _, Part in next, Target:GetChildren() do
-                    if Part:IsA("BasePart") and Whitelist[Part.Name] then
-                        local P = Part.CFrame.Position
-                        local HX, HY, HZ = Part.Size.X * 0.5, Part.Size.Y * 0.5, Part.Size.Z * 0.5
-                        Min = Vector3New(MathMin(Min.X, P.X - HX), MathMin(Min.Y, P.Y - HY), MathMin(Min.Z, P.Z - HZ))
-                        Max = Vector3New(MathMax(Max.X, P.X + HX), MathMax(Max.Y, P.Y + HY), MathMax(Max.Z, P.Z + HZ))
-                        Found = true
-                    end
-                end
-                if Found then
-                    return ComputeBoundingBoxFromParts(Target:GetChildren(), Min, Max)
-                end
-            end
-            local RigType = Humanoid and Humanoid.RigType
-            if RigType == EnumHumanoidRigTypeR15 then
-                local Ok, CF, Size = pcall(Target.ComputeR15BodyBoundingBox, Target)
-                if Ok and CF and Size then return CF, Size end
-            elseif RigType == EnumHumanoidRigTypeR6 then
-                local Min = Vector3New(MathHuge, MathHuge, MathHuge)
-                local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
-                local Found = false
-                for _, Part in next, Target:GetChildren() do
-                    if Part:IsA("BasePart") then
-                        local P = Part.CFrame.Position
-                        local HX, HY, HZ = Part.Size.X * 0.5, Part.Size.Y * 0.5, Part.Size.Z * 0.5
-                        Min = Vector3New(MathMin(Min.X, P.X - HX), MathMin(Min.Y, P.Y - HY), MathMin(Min.Z, P.Z - HZ))
-                        Max = Vector3New(MathMax(Max.X, P.X + HX), MathMax(Max.Y, P.Y + HY), MathMax(Max.Z, P.Z + HZ))
-                        Found = true
-                    end
-                end
-                if Found then
-                    return ComputeBoundingBoxFromParts(Target:GetChildren(), Min, Max)
-                end
-            else
-                local Ok, CF, Size = pcall(Target.ComputeR15BodyBoundingBox, Target)
-                if Ok and CF and Size then return CF, Size end
-                local Ok2, CF2, Size2 = pcall(Target.GetBoundingBox, Target)
-                if Ok2 and CF2 and Size2 then return CF2, Size2 end
-            end
-        end
-        if Target and Target:IsA("Model") then
-            local Ok, CF, Size = pcall(Target.GetBoundingBox, Target)
-            if Ok and CF and Size then return CF, Size end
-        end
-        return nil, nil
+        if not Found then return nil, nil end
+        local Center = (Min + Max) * 0.5
+        return CFrameNew(Center), Max - Min
     end
 
     local function ProjectPointToScreen(WorldPosition)
