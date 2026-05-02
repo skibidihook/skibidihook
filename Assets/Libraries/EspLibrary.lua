@@ -1,29 +1,30 @@
-local Workspace = game:GetService("Workspace")
-local CurrentCamera = Workspace.CurrentCamera
+local CloneRef = cloneref or function(...) return ... end
+local Workspace = CloneRef(game:GetService("Workspace"))
+local CurrentCamera = CloneRef(Workspace.CurrentCamera)
 local WorldToViewportPoint = CurrentCamera.WorldToViewportPoint
 
-local DrawingNew = Drawing.new
-local Vector2New = Vector2.new
-local Vector3New = Vector3.new
-local Color3New = Color3.new
-local TableRemove = table.remove
-local MathFloor = math.floor
-local MathClamp = math.clamp
-local MathRound = math.round
-local MathHuge = math.huge
-local MathMin = math.min
-local MathMax = math.max
-local MathAbs = math.abs
-local CFrameNew = CFrame.new
-local Type = type
+local DrawingNew    = Drawing.new
+local Vector2New    = Vector2.new
+local Vector3New    = Vector3.new
+local Color3New     = Color3.new
+local TableRemove   = table.remove
+local MathFloor     = math.floor
+local MathClamp     = math.clamp
+local MathRound     = math.round
+local MathHuge      = math.huge
+local MathMin       = math.min
+local MathMax       = math.max
+local MathAbs       = math.abs
+local CFrameNew     = CFrame.new
+local Type          = type
 
-local EnumHumanoidRigTypeR6 = Enum.HumanoidRigType.R6
+local EnumHumanoidRigTypeR6  = Enum.HumanoidRigType.R6
 local EnumHumanoidRigTypeR15 = Enum.HumanoidRigType.R15
 
-local ColorBlack = Color3New(0, 0, 0)
-local ColorWhite = Color3New(1, 1, 1)
-local ColorGreen = Color3New(0, 1, 0)
-local ColorRed = Color3New(1, 0, 0)
+local ColorBlack     = Color3New(0, 0, 0)
+local ColorWhite     = Color3New(1, 1, 1)
+local ColorGreen     = Color3New(0, 1, 0)
+local ColorRed       = Color3New(1, 0, 0)
 local ColorBackground = Color3New(0.239215, 0.239215, 0.239215)
 
 local VisibleItemsBuffer = {}
@@ -39,7 +40,7 @@ local function CreateDrawing(DrawingType, Properties, Container)
     return DrawingObject
 end
 
-local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 1
+local GlobalFont = (getgenv and getgenv().GLOBAL_FONT) or _G.GLOBAL_FONT or 3
 local GlobalSize = (getgenv and getgenv().GLOBAL_SIZE) or _G.GLOBAL_SIZE or 13
 local BaseZIndex = 1
 
@@ -48,15 +49,15 @@ local EspLibrary = {}
 EspLibrary.Enabled = true
 
 EspLibrary.Config = {
-    Font = GlobalFont,
-    TextSize = GlobalSize,
-    FlagSize = MathClamp(GlobalSize - 2, 11, 13),
-    FlagLinePadding = 2,
-    FlagXPadding = 6,
-    BoxCornerWidthScale = 0.25,
+    Font               = GlobalFont,
+    TextSize           = GlobalSize,
+    FlagSize           = GlobalSize,
+    FlagLinePadding    = 2,
+    FlagXPadding       = 6,
+    BoxCornerWidthScale  = 0.25,
     BoxCornerHeightScale = 0.25,
-    PixelSnap = true,
-    NameMode = "Username",
+    PixelSnap          = true,
+    NameMode           = "Username",
 }
 
 do
@@ -510,18 +511,22 @@ do
             L.From, L.To = CornerPoints[i][1], CornerPoints[i][2]
         end
     end
-
-    function PlayerEsp:RenderName(Center2D, Offset, Enabled)
-        local Name = self.Drawings.Name
+    function PlayerEsp:RenderName(Center2D, Offset, NameSettings)
+        local NameText = self.Drawings.Name
+        local Enabled  = false
+        if Type(NameSettings) == "table" then
+            Enabled = not not NameSettings.Enabled
+        else
+            Enabled = not not NameSettings
+        end
         if not Enabled then
-            Name.Visible = false
+            NameText.Visible = false
             return
         end
-        Name.Visible = true
-        Name.Text = GetPlayerName(self.Player)
-        Name.Position = Center2D - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
+        NameText.Visible  = true
+        NameText.Text     = GetPlayerName(self.Player)
+        NameText.Position = Center2D - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
     end
-
     function PlayerEsp:RenderWeapon(Center2D, Offset, Enabled, BottomYOffset)
         local WeaponText = self.Drawings.Weapon
         if not Enabled then
@@ -1065,15 +1070,21 @@ do
         end
     end
 
-    function NpcEsp:RenderName(Center2D, Offset, Enabled)
+    function NpcEsp:RenderName(Center2D, Offset, NameSettings)
         local NameText = self.Drawings.Name
+        local Enabled  = false
+        if Type(NameSettings) == "table" then
+            Enabled = not not NameSettings.Enabled
+        else
+            Enabled = not not NameSettings
+        end
         if not Enabled then
             NameText.Visible = false
             return
         end
-        NameText.Visible = true
+        NameText.Visible  = true
         NameText.Position = Center2D - Vector2New(0, Offset.Y + EspLibrary.Config.TextSize)
-        NameText.Text = self.Name or "NPC"
+        NameText.Text     = self.Name or "NPC"
     end
 
     function NpcEsp:RenderDistance(Center2D, Offset, Enabled, BottomYOffset, DistanceOverride)
