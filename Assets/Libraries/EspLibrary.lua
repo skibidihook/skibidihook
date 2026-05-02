@@ -1,6 +1,6 @@
 local CloneRef = cloneref or function(...) return ... end
 local Workspace = CloneRef(game:GetService("Workspace"))
-local CurrentCamera = CloneRef(Workspace.CurrentCamera)
+local CurrentCamera = Workspace.CurrentCamera
 local WorldToViewportPoint = CurrentCamera.WorldToViewportPoint
 
 local DrawingNew = Drawing.new
