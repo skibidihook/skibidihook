@@ -79,10 +79,6 @@ do
     end
     local function GetBoundingBoxSafe(Target, _, IsCharacter)
         if not Target then return nil, nil end
-        local Hitbox = Target:FindFirstChild("hitbox")
-        if Hitbox and Hitbox:IsA("BasePart") then
-            return CFrameNew(Hitbox.CFrame.Position), Hitbox.Size
-        end
         local Min = Vector3New(MathHuge,  MathHuge,  MathHuge)
         local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
         local Found = false
@@ -381,7 +377,7 @@ do
         self.Current = {
             Character = Character,
             Humanoid = Character:FindFirstChildOfClass("Humanoid"),
-            RootPart = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("humanoid_root_part") or Character.PrimaryPart,
+            RootPart = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart,
             Health = 0,
             MaxHealth = 0,
             HealthPercentage = 0,
@@ -516,12 +512,13 @@ do
             return 0
         end
         local RootPart = self.Current and self.Current.RootPart
-        if not RootPart then
+        local Distance = DistanceOverride or (RootPart and (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude)
+        if not Distance then
             DistanceText.Visible = false
             return 0
         end
         local Cfg = EspLibrary.Config
-        local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - RootPart.Position).Magnitude)
+        local Magnitude = MathRound(Distance)
         local PosX = Center2D.X
         local PosY = Center2D.Y + Offset.Y + BottomYOffset
         if Cfg.PixelSnap then
@@ -616,8 +613,7 @@ do
         if not Current then return self:HideDrawings() end
         local Character = Current.Character
         local Humanoid = Current.Humanoid
-        local RootPart = Current.RootPart
-        if not Character or not RootPart then return self:HideDrawings() end
+        if not Character then return self:HideDrawings() end
         local CF, Size3D = GetBoundingBoxSafe(Character, Humanoid, true)
         if not Size3D then return self:HideDrawings() end
         local GoalPos = CF.Position
@@ -640,7 +636,7 @@ do
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
         local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
-        BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY, DistanceOverride)
+        BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY, DistanceOverride or (CameraCF.Position - GoalPos).Magnitude)
         self:RenderFlags(Center2D, Offset, Settings.Flags)
     end
 
