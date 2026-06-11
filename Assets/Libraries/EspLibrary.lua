@@ -79,6 +79,10 @@ do
     end
     local function GetBoundingBoxSafe(Target, _, IsCharacter)
         if not Target then return nil, nil end
+        local Hitbox = Target:FindFirstChild("hitbox")
+        if Hitbox and Hitbox:IsA("BasePart") then
+            return CFrameNew(Hitbox.CFrame.Position), Hitbox.Size
+        end
         local Min = Vector3New(MathHuge,  MathHuge,  MathHuge)
         local Max = Vector3New(-MathHuge, -MathHuge, -MathHuge)
         local Found = false
@@ -299,6 +303,19 @@ do
         end
     end
 
+    function PlayerEsp:SetColor(Color)
+        self.Color = Color
+        local Drawings = self.Drawings
+        if not Drawings then return end
+        Drawings.Name.Color = Color
+        Drawings.Distance.Color = Color
+        Drawings.Weapon.Color = Color
+        local CornerLines = Drawings.Corners.Lines
+        for i = 1, 8 do CornerLines[i].Color = Color end
+        local FullLines = Drawings.FullBox.Lines
+        for i = 1, 4 do FullLines[i].Color = Color end
+    end
+
     function PlayerEsp:HumanoidHealthChanged()
         local Humanoid = self.Current and self.Current.Humanoid
         if not Humanoid then return end
@@ -364,7 +381,7 @@ do
         self.Current = {
             Character = Character,
             Humanoid = Character:FindFirstChildOfClass("Humanoid"),
-            RootPart = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart,
+            RootPart = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("humanoid_root_part") or Character.PrimaryPart,
             Health = 0,
             MaxHealth = 0,
             HealthPercentage = 0,
@@ -518,7 +535,7 @@ do
     end
 
     function PlayerEsp:RenderHealthbar(Center2D, Offset, Enabled)
-        if not Enabled then
+        if not Enabled or not (self.Current and self.Current.Humanoid) then
             self.Drawings.HealthBar.Visible = false
             self.Drawings.HealthBackground.Visible = false
             return
@@ -600,7 +617,7 @@ do
         local Character = Current.Character
         local Humanoid = Current.Humanoid
         local RootPart = Current.RootPart
-        if not Character or not Humanoid or not RootPart then return self:HideDrawings() end
+        if not Character or not RootPart then return self:HideDrawings() end
         local CF, Size3D = GetBoundingBoxSafe(Character, Humanoid, true)
         if not Size3D then return self:HideDrawings() end
         local GoalPos = CF.Position
