@@ -112,23 +112,33 @@ EspLibrary.Config = {
     PixelSnap          = true,
     NameMode           = "Username",
     BoundsRefreshInterval = 0.05,
+    BoundsMode             = "Optimized",
     BoxOutlineThickness    = 3,
     BoxOutlineTransparency = 0.55,
 }
 
 do
     local function GetCachedBounds(Holder, Container)
+        local Cfg = EspLibrary.Config
+        local Mode = Cfg.BoundsMode
+
+        if Mode == "Fast" and Container:IsA("Model") then
+            return Container:GetBoundingBox()
+        end
+
         local Now = OsClock()
-        local Anchor = Holder.BoundsAnchor
-        if Anchor
-            and Holder.BoundsMinOffset
-            and (Now - Holder.BoundsStamp) < EspLibrary.Config.BoundsRefreshInterval
-            and Anchor.Parent
-        then
-            local AnchorPosition = Anchor.Position
-            local MinV = AnchorPosition + Holder.BoundsMinOffset
-            local MaxV = AnchorPosition + Holder.BoundsMaxOffset
-            return CFrameNew((MinV + MaxV) * 0.5), MaxV - MinV
+        if Mode ~= "Accurate" then
+            local Anchor = Holder.BoundsAnchor
+            if Anchor
+                and Holder.BoundsMinOffset
+                and (Now - Holder.BoundsStamp) < Cfg.BoundsRefreshInterval
+                and Anchor.Parent
+            then
+                local AnchorPosition = Anchor.Position
+                local MinV = AnchorPosition + Holder.BoundsMinOffset
+                local MaxV = AnchorPosition + Holder.BoundsMaxOffset
+                return CFrameNew((MinV + MaxV) * 0.5), MaxV - MinV
+            end
         end
 
         local MinX, MinY, MinZ =  MathHuge,  MathHuge,  MathHuge
@@ -161,7 +171,7 @@ do
 
         local MinV = Vector3New(MinX, MinY, MinZ)
         local MaxV = Vector3New(MaxX, MaxY, MaxZ)
-        local NewAnchor = Holder.RootPart
+        local NewAnchor = Mode ~= "Accurate" and Holder.RootPart or nil
         if NewAnchor then
             local AnchorPosition = NewAnchor.Position
             Holder.BoundsAnchor    = NewAnchor
@@ -511,6 +521,15 @@ do
                 Font = Cfg.Font,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings),
+            HeadDotOutline = CreateDrawing("Circle", {
+                Visible = false,
+                Filled = false,
+                NumSides = 30,
+                Thickness = OutlineThickness,
+                Transparency = OutlineTransparency,
+                Color = ColorBlack,
+                ZIndex = BaseZIndex,
+            }, AllDrawings),
             HeadDot = CreateDrawing("Circle", {
                 Visible = false,
                 Filled = false,
@@ -526,6 +545,7 @@ do
         Drawings.FlagsShown    = 0
         Drawings.OutlineT      = OutlineTransparency
         Drawings.OutlineTh     = OutlineThickness
+        Drawings.HeadOutlineT  = OutlineTransparency
         Drawings.FlagLastTexts = {}
         Drawings.FlagFont      = Cfg.Font
         Drawings.FlagSize      = Cfg.FlagSize
@@ -820,7 +840,9 @@ do
     end
 
     function PlayerEsp:RenderHeadDot(Offset, HeadDotSettings)
-        local HeadDot = self.Drawings.HeadDot
+        local Drawings = self.Drawings
+        local HeadDot = Drawings.HeadDot
+        local Outline = Drawings.HeadDotOutline
         local Enabled, DotColor
         if Type(HeadDotSettings) == "table" then
             Enabled  = not not HeadDotSettings.Enabled
@@ -831,15 +853,28 @@ do
         local Head = Enabled and self.Current and self.Current.Head
         if not Head then
             HeadDot.Visible = false
+            Outline.Visible = false
             return
         end
         local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, Head.Position)
         if not OnScreen then
             HeadDot.Visible = false
+            Outline.Visible = false
             return
         end
-        HeadDot.Position = Vector2New(ScreenPos.X, ScreenPos.Y)
-        HeadDot.Radius = MathMax(2, Offset.X * 0.22)
+        local Cfg = EspLibrary.Config
+        local OutlineTransparency = Cfg.BoxOutlineTransparency
+        if Drawings.HeadOutlineT ~= OutlineTransparency then
+            Drawings.HeadOutlineT = OutlineTransparency
+            Outline.Transparency = OutlineTransparency
+        end
+        local Position = Vector2New(ScreenPos.X, ScreenPos.Y)
+        local Radius = MathMax(2, Offset.X * 0.22)
+        Outline.Position = Position
+        Outline.Radius = Radius
+        Outline.Visible = true
+        HeadDot.Position = Position
+        HeadDot.Radius = Radius
         HeadDot.Color = DotColor or self.Color or ColorWhite
         HeadDot.Visible = true
     end
@@ -863,8 +898,6 @@ do
         local BarHeight = Offset.Y * 2
         local FlagSize = Cfg.FlagSize
         local TextY = 1 + (BarHeight - 2) * (1 - (Current.HealthPercentage or 0)) - FlagSize * 0.5
-        -- follow the fill level, but never leave the bar: keeps the number off
-        -- the name above the box and the distance below it
         if TextY < 0 then TextY = 0 end
         local MaxY = BarHeight - FlagSize
         if TextY > MaxY then TextY = MaxY end
