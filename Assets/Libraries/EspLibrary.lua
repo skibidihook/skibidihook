@@ -19,11 +19,10 @@ local StringLower   = string.lower
 local Type          = type
 local OsClock       = os.clock
 
-local ColorBlack      = Color3New(0, 0, 0)
-local ColorWhite      = Color3New(1, 1, 1)
-local ColorGreen      = Color3New(0, 1, 0)
-local ColorRed        = Color3New(1, 0, 0)
-local ColorBackground = Color3New(0.239215, 0.239215, 0.239215)
+local ColorBlack = Color3New(0, 0, 0)
+local ColorWhite = Color3New(1, 1, 1)
+local ColorGreen = Color3New(0, 1, 0)
+local ColorRed   = Color3New(1, 0, 0)
 
 local VisibleItemsBuffer = {}
 local LibraryConnections = {}
@@ -113,6 +112,8 @@ EspLibrary.Config = {
     PixelSnap          = true,
     NameMode           = "Username",
     BoundsRefreshInterval = 0.05,
+    BoxOutlineThickness    = 3,
+    BoxOutlineTransparency = 0.55,
 }
 
 do
@@ -278,11 +279,26 @@ do
         end
         if State == "hidden" then return end
 
+        local Cfg = EspLibrary.Config
+        local OutlineTransparency = Cfg.BoxOutlineTransparency
+        local OutlineThickness    = Cfg.BoxOutlineThickness
+        if Drawings.OutlineT ~= OutlineTransparency or Drawings.OutlineTh ~= OutlineThickness then
+            Drawings.OutlineT  = OutlineTransparency
+            Drawings.OutlineTh = OutlineThickness
+            for Index = 1, 8 do
+                CornersOutlines[Index].Transparency = OutlineTransparency
+                CornersOutlines[Index].Thickness    = OutlineThickness
+            end
+            for Index = 1, 4 do
+                FullOutlines[Index].Transparency = OutlineTransparency
+                FullOutlines[Index].Thickness    = OutlineThickness
+            end
+        end
+
         local Left   = BoxPos2D.X
         local Top    = BoxPos2D.Y
         local Right  = Left + BoxSize2D.X
         local Bottom = Top + BoxSize2D.Y
-        local Cfg = EspLibrary.Config
         if Cfg.PixelSnap then
             Left   = MathFloor(Left + 0.5)
             Top    = MathFloor(Top + 0.5)
@@ -405,14 +421,16 @@ do
     function PlayerEsp:CreateDrawingCache()
         local AllDrawings = {}
         local Cfg = EspLibrary.Config
+        local OutlineThickness    = Cfg.BoxOutlineThickness
+        local OutlineTransparency = Cfg.BoxOutlineTransparency
         local Corners = { Lines = {}, Outlines = {} }
         for Index = 1, 8 do
-            Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             Corners.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         local FullBox = { Lines = {}, Outlines = {} }
         for Index = 1, 4 do
-            FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             FullBox.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         local FlagTexts = {}
@@ -475,17 +493,39 @@ do
             }, AllDrawings),
             HealthBackground = CreateDrawing("Square", {
                 Visible = false,
-                Color = ColorBackground,
-                Transparency = 0.7,
+                Color = ColorBlack,
+                Transparency = 0.55,
                 Thickness = 1,
                 Filled = true,
                 ZIndex = BaseZIndex,
+            }, AllDrawings),
+            HealthText = CreateDrawing("Text", {
+                Visible = false,
+                Center = false,
+                Outline = true,
+                OutlineColor = ColorBlack,
+                Color = ColorWhite,
+                Transparency = 1,
+                Size = Cfg.FlagSize,
+                Text = "",
+                Font = Cfg.Font,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
+            HeadDot = CreateDrawing("Circle", {
+                Visible = false,
+                Filled = false,
+                NumSides = 30,
+                Thickness = 1,
+                Color = ColorWhite,
+                ZIndex = BaseZIndex + 1,
             }, AllDrawings),
             FlagTexts = FlagTexts,
         }
         Drawings.All = AllDrawings
         Drawings.BoxState      = "hidden"
         Drawings.FlagsShown    = 0
+        Drawings.OutlineT      = OutlineTransparency
+        Drawings.OutlineTh     = OutlineThickness
         Drawings.FlagLastTexts = {}
         Drawings.FlagFont      = Cfg.Font
         Drawings.FlagSize      = Cfg.FlagSize
@@ -625,6 +665,9 @@ do
             if not Current.RootPart and Child.Name == "HumanoidRootPart" then
                 Current.RootPart = Child
             end
+            if not Current.Head and Child.Name == "Head" then
+                Current.Head = Child
+            end
         end
         local Conns = self.ChildAddedConnections
         for Index = 1, #Conns do
@@ -639,6 +682,8 @@ do
             Current.Humanoid = nil
         elseif Child == Current.RootPart then
             Current.RootPart = nil
+        elseif Child == Current.Head then
+            Current.Head = nil
         end
         RemoveFromParts(Current, Child)
         local Conns = self.ChildRemovedConnections
@@ -662,6 +707,7 @@ do
             Character = Character,
             Humanoid = Character:FindFirstChildOfClass("Humanoid"),
             RootPart = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart,
+            Head = Character:FindFirstChild("Head"),
             Parts = CollectBaseParts(Character),
             BoundsStamp = 0,
             Health = 0,
@@ -773,6 +819,55 @@ do
         RenderFlagList(self, self.Drawings, Center2D, Offset, FlagsSettings)
     end
 
+    function PlayerEsp:RenderHeadDot(Offset, HeadDotSettings)
+        local HeadDot = self.Drawings.HeadDot
+        local Enabled, DotColor
+        if Type(HeadDotSettings) == "table" then
+            Enabled  = not not HeadDotSettings.Enabled
+            DotColor = HeadDotSettings.Color
+        else
+            Enabled = not not HeadDotSettings
+        end
+        local Head = Enabled and self.Current and self.Current.Head
+        if not Head then
+            HeadDot.Visible = false
+            return
+        end
+        local ScreenPos, OnScreen = WorldToViewportPoint(CurrentCamera, Head.Position)
+        if not OnScreen then
+            HeadDot.Visible = false
+            return
+        end
+        HeadDot.Position = Vector2New(ScreenPos.X, ScreenPos.Y)
+        HeadDot.Radius = MathMax(2, Offset.X * 0.22)
+        HeadDot.Color = DotColor or self.Color or ColorWhite
+        HeadDot.Visible = true
+    end
+
+    function PlayerEsp:RenderHealthText(Center2D, Offset, Enabled)
+        local Drawings = self.Drawings
+        local HealthText = Drawings.HealthText
+        local Current = self.Current
+        if not Enabled or not (Current and Current.Humanoid) then
+            HealthText.Visible = false
+            return
+        end
+        local Health = MathFloor((Current.Health or 0) + 0.5)
+        if Drawings.HealthValue ~= Health then
+            Drawings.HealthValue = Health
+            HealthText.Text = `{Health}`
+            Drawings.HealthTextWidth = HealthText.TextBounds.X
+        end
+        local BarTopLeft = Center2D - Offset - Vector2New(5, 0)
+        local BarInnerHeight = Offset.Y * 2 - 2
+        local TopY = 1 + BarInnerHeight * (1 - (Current.HealthPercentage or 0))
+        HealthText.Position = Vector2New(
+            BarTopLeft.X - (Drawings.HealthTextWidth or 0) - 3,
+            BarTopLeft.Y + TopY - EspLibrary.Config.FlagSize * 0.5
+        )
+        HealthText.Visible = true
+    end
+
     function PlayerEsp:Loop(Settings, DistanceOverride)
         if not EspLibrary.Enabled then return self:HideDrawings() end
         local Current = self.Current
@@ -797,9 +892,11 @@ do
             MathMax(MathAbs(TopRight2D.X - Center2D.X), MathAbs(BottomRight2D.X - Center2D.X)),
             MathMax(MathAbs(Center2D.Y - TopRight2D.Y), MathAbs(BottomRight2D.Y - Center2D.Y))
         )
-        self:RenderBox(Center2D - Offset, Offset * 2, Settings.Box)
+        RenderCharacterBox(self.Drawings, Center2D - Offset, Offset * 2, Settings.Box, "corner")
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
+        self:RenderHealthText(Center2D, Offset, Settings.HealthText)
+        self:RenderHeadDot(Offset, Settings.HeadDot)
         local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
         BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY,
             DistanceOverride or (CameraCF.Position - GoalPos).Magnitude)
@@ -836,17 +933,21 @@ do
                 Transparency = 1, Size = Cfg.TextSize, Font = Cfg.Font, ZIndex = BaseZIndex + 1,
             }, AllDrawings),
         }
+        local OutlineThickness    = Cfg.BoxOutlineThickness
+        local OutlineTransparency = Cfg.BoxOutlineTransparency
         for Index = 1, 4 do
-            Drawings.FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            Drawings.FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             Drawings.FullBox.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = self.Color or ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         for Index = 1, 8 do
-            Drawings.Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            Drawings.Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             Drawings.Corners.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = self.Color or ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         Drawings.All = AllDrawings
         Drawings.BoxState   = "hidden"
         Drawings.FlagsShown = 0
+        Drawings.OutlineT   = OutlineTransparency
+        Drawings.OutlineTh  = OutlineThickness
         Drawings.NameText   = Drawings.Name.Text
         self.Drawings = Drawings
         self.AllDrawings = AllDrawings
@@ -992,7 +1093,7 @@ do
                 Visible = false, Thickness = 1, Filled = true, ZIndex = BaseZIndex + 1,
             }, AllDrawings),
             HealthBackground = CreateDrawing("Square", {
-                Visible = false, Color = ColorBackground, Transparency = 0.7,
+                Visible = false, Color = ColorBlack, Transparency = 0.55,
                 Thickness = 1, Filled = true, ZIndex = BaseZIndex,
             }, AllDrawings),
         }
@@ -1004,17 +1105,21 @@ do
                 Font = Cfg.Font, ZIndex = BaseZIndex + 1,
             }, AllDrawings)
         end
+        local OutlineThickness    = Cfg.BoxOutlineThickness
+        local OutlineTransparency = Cfg.BoxOutlineTransparency
         for Index = 1, 4 do
-            Drawings.FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            Drawings.FullBox.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             Drawings.FullBox.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = self.Color or ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         for Index = 1, 8 do
-            Drawings.Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 2, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
+            Drawings.Corners.Outlines[Index] = CreateDrawing("Line", { Visible = false, Thickness = OutlineThickness, Transparency = OutlineTransparency, Color = ColorBlack, ZIndex = BaseZIndex }, AllDrawings)
             Drawings.Corners.Lines[Index] = CreateDrawing("Line", { Visible = false, Thickness = 1, Color = self.Color or ColorWhite, ZIndex = BaseZIndex + 1 }, AllDrawings)
         end
         Drawings.All = AllDrawings
         Drawings.BoxState      = "hidden"
         Drawings.FlagsShown    = 0
+        Drawings.OutlineT      = OutlineTransparency
+        Drawings.OutlineTh     = OutlineThickness
         Drawings.FlagLastTexts = {}
         Drawings.FlagFont      = Cfg.Font
         Drawings.FlagSize      = Cfg.FlagSize
