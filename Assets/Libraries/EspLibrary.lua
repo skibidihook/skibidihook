@@ -112,7 +112,7 @@ EspLibrary.Config = {
     PixelSnap          = true,
     NameMode           = "Username",
     BoundsRefreshInterval = 0.05,
-    BoundsMode             = "Optimized",
+    BoundsMode             = "Default",
     BoxOutlineThickness    = 3,
     BoxOutlineTransparency = 0.55,
 }
@@ -120,25 +120,22 @@ EspLibrary.Config = {
 do
     local function GetCachedBounds(Holder, Container)
         local Cfg = EspLibrary.Config
-        local Mode = Cfg.BoundsMode
 
-        if Mode == "Fast" and Container:IsA("Model") then
+        if Cfg.BoundsMode == "Fast" and Container:IsA("Model") then
             return Container:GetBoundingBox()
         end
 
         local Now = OsClock()
-        if Mode ~= "Accurate" then
-            local Anchor = Holder.BoundsAnchor
-            if Anchor
-                and Holder.BoundsMinOffset
-                and (Now - Holder.BoundsStamp) < Cfg.BoundsRefreshInterval
-                and Anchor.Parent
-            then
-                local AnchorPosition = Anchor.Position
-                local MinV = AnchorPosition + Holder.BoundsMinOffset
-                local MaxV = AnchorPosition + Holder.BoundsMaxOffset
-                return CFrameNew((MinV + MaxV) * 0.5), MaxV - MinV
-            end
+        local Anchor = Holder.BoundsAnchor
+        if Anchor
+            and Holder.BoundsMinOffset
+            and (Now - Holder.BoundsStamp) < Cfg.BoundsRefreshInterval
+            and Anchor.Parent
+        then
+            local AnchorPosition = Anchor.Position
+            local MinV = AnchorPosition + Holder.BoundsMinOffset
+            local MaxV = AnchorPosition + Holder.BoundsMaxOffset
+            return CFrameNew((MinV + MaxV) * 0.5), MaxV - MinV
         end
 
         local MinX, MinY, MinZ =  MathHuge,  MathHuge,  MathHuge
@@ -171,7 +168,7 @@ do
 
         local MinV = Vector3New(MinX, MinY, MinZ)
         local MaxV = Vector3New(MaxX, MaxY, MaxZ)
-        local NewAnchor = Mode ~= "Accurate" and Holder.RootPart or nil
+        local NewAnchor = Holder.RootPart
         if NewAnchor then
             local AnchorPosition = NewAnchor.Position
             Holder.BoundsAnchor    = NewAnchor
@@ -938,7 +935,7 @@ do
         RenderCharacterBox(self.Drawings, Center2D - Offset, Offset * 2, Settings.Box, "corner")
         self:RenderName(Center2D, Offset, Settings.Name)
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
-        self:RenderHealthText(Center2D, Offset, Settings.HealthText)
+        self:RenderHealthText(Center2D, Offset, Settings.HealthText and Settings.Healthbar)
         self:RenderHeadDot(Offset, Settings.HeadDot)
         local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
         BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY,
