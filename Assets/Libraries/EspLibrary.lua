@@ -852,6 +852,7 @@ do
             HealthText.Visible = false
             return
         end
+        local Cfg = EspLibrary.Config
         local Health = MathFloor((Current.Health or 0) + 0.5)
         if Drawings.HealthValue ~= Health then
             Drawings.HealthValue = Health
@@ -859,12 +860,21 @@ do
             Drawings.HealthTextWidth = HealthText.TextBounds.X
         end
         local BarTopLeft = Center2D - Offset - Vector2New(5, 0)
-        local BarInnerHeight = Offset.Y * 2 - 2
-        local TopY = 1 + BarInnerHeight * (1 - (Current.HealthPercentage or 0))
-        HealthText.Position = Vector2New(
-            BarTopLeft.X - (Drawings.HealthTextWidth or 0) - 3,
-            BarTopLeft.Y + TopY - EspLibrary.Config.FlagSize * 0.5
-        )
+        local BarHeight = Offset.Y * 2
+        local FlagSize = Cfg.FlagSize
+        local TextY = 1 + (BarHeight - 2) * (1 - (Current.HealthPercentage or 0)) - FlagSize * 0.5
+        -- follow the fill level, but never leave the bar: keeps the number off
+        -- the name above the box and the distance below it
+        if TextY < 0 then TextY = 0 end
+        local MaxY = BarHeight - FlagSize
+        if TextY > MaxY then TextY = MaxY end
+        local PosX = BarTopLeft.X - (Drawings.HealthTextWidth or 0) - 3
+        local PosY = BarTopLeft.Y + TextY
+        if Cfg.PixelSnap then
+            PosX = MathFloor(PosX + 0.5)
+            PosY = MathFloor(PosY + 0.5)
+        end
+        HealthText.Position = Vector2New(PosX, PosY)
         HealthText.Visible = true
     end
 
