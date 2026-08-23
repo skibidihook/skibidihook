@@ -22,6 +22,7 @@ local StringLower   = string.lower
 local Type          = type
 local TypeOf        = typeof
 local OsClock       = os.clock
+local InstanceNew   = Instance.new
 
 local ColorBlack  = Color3New(0, 0, 0)
 local ColorWhite  = Color3New(1, 1, 1)
@@ -31,6 +32,20 @@ local ColorHidden = Color3New(0.55, 0.55, 0.55)
 
 local VisibleItemsBuffer = {}
 local LibraryConnections = {}
+
+local HiddenUiParent
+do
+    if gethui then
+        local Ok, Ui = pcall(gethui)
+        if Ok and Ui then HiddenUiParent = Ui end
+    end
+    if not HiddenUiParent then
+        local Ok, Core = pcall(function() return CloneRef(game:GetService("CoreGui")) end)
+        if Ok and Core then
+            HiddenUiParent = Core:FindFirstChild("RobloxGui") or Core
+        end
+    end
+end
 
 LibraryConnections[#LibraryConnections + 1] = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     local NewCamera = Workspace.CurrentCamera
@@ -59,8 +74,9 @@ local function HideDrawingSet(AllDrawings, Drawings)
     for Index = 1, #AllDrawings do
         AllDrawings[Index].Visible = false
     end
-    Drawings.BoxState   = "hidden"
-    Drawings.FlagsShown = 0
+    Drawings.BoxState      = "hidden"
+    Drawings.FlagsShown    = 0
+    Drawings.LookConeShown = 0
 end
 
 local function MakeCallbackRegistry(Callbacks)
@@ -130,6 +146,9 @@ EspLibrary.Config = {
     MaxRenderDistance      = MathHuge,
     VisibleCheckInterval   = 0.08,
     LookDirectionLength    = 15,
+    LookConeLength         = 1.2,
+    LookConeRadius         = 0.4,
+    LookConeTransparency   = 0.65,
 }
 
 EspLibrary.CharacterWhitelist = nil
@@ -205,6 +224,74 @@ do
             EspInstance:ApplyColor((Table and Table.VisibleColor) or EspInstance.Color or ColorWhite)
         else
             EspInstance:ApplyColor((Table and Table.HiddenColor) or ColorHidden)
+        end
+    end
+
+    local function DisableChams(EspInstance)
+        if EspInstance.ChamsEnabled then
+            EspInstance.ChamsEnabled = false
+            pcall(function() EspInstance.ChamsHighlight.Enabled = false end)
+        end
+    end
+
+    local function DestroyChams(EspInstance)
+        local Highlight = EspInstance.ChamsHighlight
+        if Highlight then
+            EspInstance.ChamsHighlight = nil
+            EspInstance.ChamsEnabled = false
+            pcall(function() Highlight:Destroy() end)
+        end
+    end
+
+    local function RenderChams(EspInstance, ChamsSettings, Adornee)
+        if not ResolveEnabled(ChamsSettings) or not Adornee or not HiddenUiParent then
+            return DisableChams(EspInstance)
+        end
+        local Highlight = EspInstance.ChamsHighlight
+        if not Highlight then
+            if EspInstance.ChamsBroken then return end
+            local Ok, Created = pcall(InstanceNew, "Highlight")
+            if not Ok or not Created then
+                EspInstance.ChamsBroken = true
+                return
+            end
+            Highlight = Created
+            EspInstance.ChamsHighlight = Highlight
+            pcall(function() Highlight.Parent = HiddenUiParent end)
+        end
+        local Table = Type(ChamsSettings) == "table" and ChamsSettings or nil
+        if Highlight.Adornee ~= Adornee then Highlight.Adornee = Adornee end
+        local Color = EspInstance.AppliedColor or EspInstance.Color or ColorWhite
+        local FillColor    = (Table and Table.FillColor) or Color
+        local OutlineColor = (Table and Table.OutlineColor) or Color
+        local FillTransparency    = (Table and Table.FillTransparency) or 0.6
+        local OutlineTransparency = (Table and Table.OutlineTransparency) or 0.3
+        local DepthMode = (Table and Table.DepthMode) or "AlwaysOnTop"
+        if EspInstance.ChamsFillColor ~= FillColor then
+            EspInstance.ChamsFillColor = FillColor
+            Highlight.FillColor = FillColor
+        end
+        if EspInstance.ChamsOutlineColor ~= OutlineColor then
+            EspInstance.ChamsOutlineColor = OutlineColor
+            Highlight.OutlineColor = OutlineColor
+        end
+        if EspInstance.ChamsFillT ~= FillTransparency then
+            EspInstance.ChamsFillT = FillTransparency
+            Highlight.FillTransparency = FillTransparency
+        end
+        if EspInstance.ChamsOutlineT ~= OutlineTransparency then
+            EspInstance.ChamsOutlineT = OutlineTransparency
+            Highlight.OutlineTransparency = OutlineTransparency
+        end
+        if EspInstance.ChamsDepth ~= DepthMode then
+            EspInstance.ChamsDepth = DepthMode
+            Highlight.DepthMode = DepthMode == "Occluded"
+                and Enum.HighlightDepthMode.Occluded
+                or Enum.HighlightDepthMode.AlwaysOnTop
+        end
+        if not EspInstance.ChamsEnabled then
+            EspInstance.ChamsEnabled = true
+            Highlight.Enabled = true
         end
     end
 
@@ -347,33 +434,121 @@ do
         Line.From, Line.To = FromV, ToV
     end
 
+    local CONE_SEGMENTS = 8
+    local ConeCos, ConeSin = {}, {}
+    for Index = 1, CONE_SEGMENTS do
+        local Angle = (Index - 1) / CONE_SEGMENTS * 2 * math.pi
+        ConeCos[Index] = math.cos(Angle)
+        ConeSin[Index] = math.sin(Angle)
+    end
+    local WorldUp    = Vector3New(0, 1, 0)
+    local WorldRight = Vector3New(1, 0, 0)
+    local ConeBase2D = {}
+
+    local function HideLookCone(Drawings)
+        local Cone = Drawings.LookCone
+        if not Cone then return end
+        local Outlines = Drawings.LookConeOutlines
+        for Index = 1, Drawings.LookConeShown or 0 do
+            Cone[Index].Visible = false
+            Outlines[Index].Visible = false
+        end
+        Drawings.LookConeShown = 0
+    end
+
+    local function HideLookLine(Drawings)
+        Drawings.LookLine.Visible = false
+        Drawings.LookLineOutline.Visible = false
+        HideLookCone(Drawings)
+    end
+
+    local function RenderLookCone(Drawings, Tip3, Look, Color)
+        local Cone = Drawings.LookCone
+        if not Cone then return end
+        local Outlines = Drawings.LookConeOutlines
+        local Cfg = EspLibrary.Config
+        local Shown = Drawings.LookConeShown or 0
+        local ApexScreen = WorldToViewportPoint(CurrentCamera, Tip3)
+        if ApexScreen.Z <= 0 then return HideLookCone(Drawings) end
+        local Apex2 = Vector2New(ApexScreen.X, ApexScreen.Y)
+        local Base3 = Tip3 - Look * Cfg.LookConeLength
+        local U = Look:Cross(WorldUp)
+        if U.Magnitude < 0.001 then U = Look:Cross(WorldRight) end
+        U = U.Unit
+        local V = U:Cross(Look).Unit
+        local Radius = Cfg.LookConeRadius
+        for Index = 1, CONE_SEGMENTS do
+            local Point3 = Base3 + (U * ConeCos[Index] + V * ConeSin[Index]) * Radius
+            local Screen = WorldToViewportPoint(CurrentCamera, Point3)
+            if Screen.Z <= 0 then return HideLookCone(Drawings) end
+            ConeBase2D[Index] = Vector2New(Screen.X, Screen.Y)
+        end
+        local Transparency = Cfg.LookConeTransparency
+        if Drawings.LookConeT ~= Transparency then
+            Drawings.LookConeT = Transparency
+            local OutlineTransparency = Transparency * Cfg.BoxOutlineTransparency
+            for Index = 1, #Cone do
+                Cone[Index].Transparency = Transparency
+                Outlines[Index].Transparency = OutlineTransparency
+            end
+        end
+        local Count = 0
+        for Index = 1, CONE_SEGMENTS do
+            Count = Count + 1
+            SetLinePair(Outlines[Count], Cone[Count],
+                ConeBase2D[Index], ConeBase2D[Index % CONE_SEGMENTS + 1])
+            Cone[Count].Color = Color
+            if Count > Shown then
+                Cone[Count].Visible = true
+                Outlines[Count].Visible = true
+            end
+        end
+        for Index = 1, CONE_SEGMENTS, 2 do
+            Count = Count + 1
+            SetLinePair(Outlines[Count], Cone[Count], ConeBase2D[Index], Apex2)
+            Cone[Count].Color = Color
+            if Count > Shown then
+                Cone[Count].Visible = true
+                Outlines[Count].Visible = true
+            end
+        end
+        for Index = Count + 1, Shown do
+            Cone[Index].Visible = false
+            Outlines[Index].Visible = false
+        end
+        Drawings.LookConeShown = Count
+    end
+
     local function RenderLookLine(Drawings, EspInstance, Part, LookSettings)
         local Line = Drawings.LookLine
-        local Outline = Drawings.LookLineOutline
         if not Line then return end
         if not ResolveEnabled(LookSettings) or not Part then
-            Line.Visible = false
-            Outline.Visible = false
-            return
+            return HideLookLine(Drawings)
         end
         local IsTable = Type(LookSettings) == "table"
         local Length = (IsTable and LookSettings.Length) or EspLibrary.Config.LookDirectionLength
         local PartCF = Part.CFrame
+        local Look = PartCF.LookVector
         local FromPos = PartCF.Position
-        local ToPos = FromPos + PartCF.LookVector * Length
+        local ToPos = FromPos + Look * Length
         local FromScreen = WorldToViewportPoint(CurrentCamera, FromPos)
         local ToScreen   = WorldToViewportPoint(CurrentCamera, ToPos)
         if FromScreen.Z <= 0 or ToScreen.Z <= 0 then
-            Line.Visible = false
-            Outline.Visible = false
-            return
+            return HideLookLine(Drawings)
         end
-        SetLinePair(Outline, Line,
-            Vector2New(FromScreen.X, FromScreen.Y),
-            Vector2New(ToScreen.X, ToScreen.Y))
-        Line.Color = (IsTable and LookSettings.Color) or EspInstance.AppliedColor or ColorWhite
-        Outline.Visible = true
-        Line.Visible = true
+        local Color = (IsTable and LookSettings.Color) or EspInstance.AppliedColor or ColorWhite
+        local FromV = Vector2New(FromScreen.X, FromScreen.Y)
+        local ToV   = Vector2New(ToScreen.X, ToScreen.Y)
+        if (ToV - FromV).Magnitude >= 2 then
+            SetLinePair(Drawings.LookLineOutline, Line, FromV, ToV)
+            Line.Color = Color
+            Drawings.LookLineOutline.Visible = true
+            Line.Visible = true
+        else
+            Line.Visible = false
+            Drawings.LookLineOutline.Visible = false
+        end
+        RenderLookCone(Drawings, ToPos, Look, Color)
     end
 
     local function RenderCharacterBox(Drawings, BoxPos2D, BoxSize2D, BoxSettings, DefaultMode)
@@ -670,6 +845,27 @@ do
             }, AllDrawings),
             FlagTexts = FlagTexts,
         }
+        local LookCone, LookConeOutlines = {}, {}
+        for Index = 1, 12 do
+            LookConeOutlines[Index] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = Cfg.BoxOutlineThickness,
+                Transparency = Cfg.LookConeTransparency * Cfg.BoxOutlineTransparency,
+                Color = ColorBlack,
+                ZIndex = BaseZIndex,
+            }, AllDrawings)
+            LookCone[Index] = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Transparency = Cfg.LookConeTransparency,
+                Color = ColorWhite,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+        Drawings.LookCone = LookCone
+        Drawings.LookConeOutlines = LookConeOutlines
+        Drawings.LookConeShown = 0
+        Drawings.LookConeT = Cfg.LookConeTransparency
         Drawings.All = AllDrawings
         Drawings.BoxState      = "hidden"
         Drawings.FlagsShown    = 0
@@ -757,6 +953,7 @@ do
         DisconnectAll(Cache.Connections)
         DisconnectAll(Cache.CharacterConnections)
         DisconnectAll(Cache.HumanoidConnections)
+        DestroyChams(Cache)
         if Cache.Drawings then
             HideDrawingSet(Cache.AllDrawings, Cache.Drawings)
             PlayerEsp.DrawingCache[#PlayerEsp.DrawingCache + 1] = Cache.Drawings
@@ -767,6 +964,7 @@ do
         if self.Hidden then return end
         self.Hidden = true
         HideDrawingSet(self.AllDrawings, self.Drawings)
+        DisableChams(self)
     end
 
     function PlayerEsp:ApplyColor(Color)
@@ -899,6 +1097,7 @@ do
         self.Current = nil
         self.Hidden = true
         HideDrawingSet(self.AllDrawings, self.Drawings)
+        DisableChams(self)
     end
 
     function PlayerEsp:RenderBox(BoxPos2D, BoxSize2D, BoxSettings)
@@ -1029,6 +1228,11 @@ do
             HealthText.Text = `{Health}`
             Drawings.HealthTextWidth = HealthText.TextBounds.X
         end
+        local Pct = Current.HealthPercentage or 0
+        if Drawings.HealthTextPct ~= Pct then
+            Drawings.HealthTextPct = Pct
+            HealthText.Color = ColorRed:Lerp(ColorGreen, Pct)
+        end
         local BarTopLeft = Center2D - Offset - Vector2New(5, 0)
         local BarHeight = Offset.Y * 2
         local FlagSize = Cfg.FlagSize
@@ -1067,6 +1271,7 @@ do
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, (Current.Head and Current.Head.Position) or GoalPos, Character)
+        RenderChams(self, Settings.Chams, Character)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
@@ -1178,6 +1383,7 @@ do
         if not Cache then return end
         EntityEsp.EntityCache[Entity] = nil
         DisconnectAll(Cache.Connections)
+        DestroyChams(Cache)
         if Cache.Drawings then
             HideDrawingSet(Cache.AllDrawings, Cache.Drawings)
             EntityEsp.DrawingCache[#EntityEsp.DrawingCache + 1] = Cache.Drawings
@@ -1188,6 +1394,7 @@ do
         if self.Hidden then return end
         self.Hidden = true
         HideDrawingSet(self.AllDrawings, self.Drawings)
+        DisableChams(self)
     end
 
     function EntityEsp:ApplyColor(Color)
@@ -1232,6 +1439,7 @@ do
         if W <= 1 or H <= 1 or W ~= W or H ~= H then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, BoxCF.Position, Entity)
+        RenderChams(self, Settings.Chams, Entity)
         if EspLibrary.Config.PixelSnap then
             MinX = MathFloor(MinX + 0.5)
             MinY = MathFloor(MinY + 0.5)
@@ -1309,6 +1517,23 @@ do
                 Color = ColorWhite, ZIndex = BaseZIndex + 1,
             }, AllDrawings),
         }
+        local LookCone, LookConeOutlines = {}, {}
+        for Index = 1, 12 do
+            LookConeOutlines[Index] = CreateDrawing("Line", {
+                Visible = false, Thickness = Cfg.BoxOutlineThickness,
+                Transparency = Cfg.LookConeTransparency * Cfg.BoxOutlineTransparency,
+                Color = ColorBlack, ZIndex = BaseZIndex,
+            }, AllDrawings)
+            LookCone[Index] = CreateDrawing("Line", {
+                Visible = false, Thickness = 1,
+                Transparency = Cfg.LookConeTransparency,
+                Color = ColorWhite, ZIndex = BaseZIndex + 1,
+            }, AllDrawings)
+        end
+        Drawings.LookCone = LookCone
+        Drawings.LookConeOutlines = LookConeOutlines
+        Drawings.LookConeShown = 0
+        Drawings.LookConeT = Cfg.LookConeTransparency
         for Index = 1, 6 do
             Drawings.FlagTexts[Index] = CreateDrawing("Text", {
                 Visible = false, Center = false, Outline = true,
@@ -1421,6 +1646,7 @@ do
         NpcEsp.NpcCache[Model] = nil
         DisconnectAll(Cache.Connections)
         DisconnectAll(Cache.HumanoidConnections)
+        DestroyChams(Cache)
         if Cache.Drawings then
             HideDrawingSet(Cache.AllDrawings, Cache.Drawings)
             NpcEsp.DrawingCache[#NpcEsp.DrawingCache + 1] = Cache.Drawings
@@ -1431,6 +1657,7 @@ do
         if self.Hidden then return end
         self.Hidden = true
         HideDrawingSet(self.AllDrawings, self.Drawings)
+        DisableChams(self)
     end
 
     function NpcEsp:ApplyColor(Color)
@@ -1512,6 +1739,7 @@ do
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, GoalPos, Model)
+        RenderChams(self, Settings.Chams, Model)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
