@@ -24,6 +24,7 @@ local TypeOf        = typeof
 local OsClock       = os.clock
 local InstanceNew   = Instance.new
 
+local Vector3Zero = Vector3.zero
 local ColorBlack  = Color3New(0, 0, 0)
 local ColorWhite  = Color3New(1, 1, 1)
 local ColorGreen  = Color3New(0, 1, 0)
@@ -77,6 +78,7 @@ local function HideDrawingSet(AllDrawings, Drawings)
     Drawings.BoxState      = "hidden"
     Drawings.FlagsShown    = 0
     Drawings.LookConeShown = 0
+    Drawings.SkeletonShown = 0
 end
 
 local function MakeCallbackRegistry(Callbacks)
@@ -549,6 +551,180 @@ do
             Drawings.LookLineOutline.Visible = false
         end
         RenderLookCone(Drawings, ToPos, Look, Color)
+    end
+
+    local MAX_SKELETON_BONES = 30
+
+    local R15_BONE_PAIRS = {
+        { "Neck", "Waist" }, { "Waist", "Root" },
+        { "Neck", "LeftShoulder" }, { "Neck", "RightShoulder" },
+        { "LeftShoulder", "LeftElbow" }, { "LeftElbow", "LeftWrist" },
+        { "RightShoulder", "RightElbow" }, { "RightElbow", "RightWrist" },
+        { "Root", "LeftHip" }, { "Root", "RightHip" },
+        { "LeftHip", "LeftKnee" }, { "LeftKnee", "LeftAnkle" },
+        { "RightHip", "RightKnee" }, { "RightKnee", "RightAnkle" },
+    }
+    local R15_TIP_JOINTS = { "Neck", "LeftWrist", "RightWrist", "LeftAnkle", "RightAnkle" }
+    local R15_REQUIRED_JOINTS = {
+        "Neck", "Waist", "Root",
+        "LeftShoulder", "LeftElbow", "LeftWrist",
+        "RightShoulder", "RightElbow", "RightWrist",
+        "LeftHip", "LeftKnee", "LeftAnkle",
+        "RightHip", "RightKnee", "RightAnkle",
+    }
+
+    local function BuildSkeletonBones(Model)
+        local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+        if Humanoid and Humanoid.RigType == Enum.HumanoidRigType.R6 then return nil end
+        local MotorsByPart1, MotorsByName = {}, {}
+        local Descendants = Model:GetDescendants()
+        for Index = 1, #Descendants do
+            local Descendant = Descendants[Index]
+            if Descendant:IsA("Motor6D") and Descendant.Part0 and Descendant.Part1 then
+                MotorsByPart1[Descendant.Part1] = Descendant
+                MotorsByName[Descendant.Name] = Descendant
+            end
+        end
+
+        local IsR15 = true
+        for Index = 1, #R15_REQUIRED_JOINTS do
+            if not MotorsByName[R15_REQUIRED_JOINTS[Index]] then
+                IsR15 = false
+                break
+            end
+        end
+        if IsR15 then
+            local Bones = {}
+            for Index = 1, #R15_BONE_PAIRS do
+                local Pair = R15_BONE_PAIRS[Index]
+                local MotorA = MotorsByName[Pair[1]]
+                local MotorB = MotorsByName[Pair[2]]
+                Bones[#Bones + 1] = {
+                    AP = MotorA.Part0, AO = MotorA.C0.Position,
+                    BP = MotorB.Part0, BO = MotorB.C0.Position,
+                }
+            end
+            for Index = 1, #R15_TIP_JOINTS do
+                local JointName = R15_TIP_JOINTS[Index]
+                local Motor = MotorsByName[JointName]
+                Bones[#Bones + 1] = {
+                    AP = Motor.Part0, AO = Motor.C0.Position,
+                    BP = Motor.Part1, BO = -Motor.C1.Position,
+                    IsHeadBone = JointName == "Neck",
+                }
+            end
+            return Bones
+        end
+
+        local HasChild = {}
+        for _, Motor in next, MotorsByPart1 do HasChild[Motor.Part0] = true end
+        local Bones = {}
+        for Part1, Motor in next, MotorsByPart1 do
+            local ParentMotor = MotorsByPart1[Motor.Part0]
+            Bones[#Bones + 1] = {
+                AP = Motor.Part0, AO = Motor.C0.Position,
+                BP = ParentMotor and ParentMotor.Part0 or Motor.Part0,
+                BO = ParentMotor and ParentMotor.C0.Position or Vector3Zero,
+            }
+            if not HasChild[Part1] then
+                Bones[#Bones + 1] = {
+                    AP = Motor.Part0, AO = Motor.C0.Position,
+                    BP = Part1, BO = -Motor.C1.Position,
+                }
+            end
+        end
+        if #Bones < 4 then return nil end
+        return Bones
+    end
+
+    local function GetHeadDotRadius(Offset)
+        return MathMax(2, Offset.X * 0.22)
+    end
+
+    local function HideSkeleton(Drawings)
+        local Lines = Drawings.SkeletonLines
+        if Lines then
+            local Outlines = Drawings.SkeletonOutlines
+            for Index = 1, Drawings.SkeletonShown or 0 do
+                Lines[Index].Visible = false
+                Outlines[Index].Visible = false
+            end
+        end
+        Drawings.SkeletonShown = 0
+    end
+
+    local function RenderSkeleton(EspInstance, Drawings, SkeletonSettings, Holder, Model, HeadDotSettings, Offset)
+        if not ResolveEnabled(SkeletonSettings) or not Model then
+            return HideSkeleton(Drawings)
+        end
+        local HeadDotRadius
+        if Offset and HeadDotSettings and ResolveEnabled(HeadDotSettings) then
+            HeadDotRadius = GetHeadDotRadius(Offset)
+        end
+        local Bones = Holder.SkeletonBones
+        if Bones == false then return HideSkeleton(Drawings) end
+        if not Bones then
+            Bones = BuildSkeletonBones(Model) or false
+            Holder.SkeletonBones = Bones
+            if Bones == false then return HideSkeleton(Drawings) end
+        end
+        local Lines = Drawings.SkeletonLines
+        local Outlines = Drawings.SkeletonOutlines
+        if not Lines then
+            Lines, Outlines = {}, {}
+            Drawings.SkeletonLines = Lines
+            Drawings.SkeletonOutlines = Outlines
+        end
+        local Cfg = EspLibrary.Config
+        local Shown = Drawings.SkeletonShown or 0
+        local Color = (Type(SkeletonSettings) == "table" and SkeletonSettings.Color)
+            or EspInstance.AppliedColor or ColorWhite
+        local Count = 0
+        for Index = 1, #Bones do
+            if Count >= MAX_SKELETON_BONES then break end
+            local Bone = Bones[Index]
+            local AP, BP = Bone.AP, Bone.BP
+            if not AP.Parent or not BP.Parent then
+                Holder.SkeletonBones = nil
+                break
+            end
+            local A = WorldToViewportPoint(CurrentCamera, AP.CFrame:PointToWorldSpace(Bone.AO))
+            local BX, BY, BZ
+            if Bone.IsHeadBone and HeadDotRadius then
+                local HeadScreen = WorldToViewportPoint(CurrentCamera, BP.Position)
+                BX, BY, BZ = HeadScreen.X, HeadScreen.Y + HeadDotRadius, HeadScreen.Z
+            else
+                local B = WorldToViewportPoint(CurrentCamera, BP.CFrame:PointToWorldSpace(Bone.BO))
+                BX, BY, BZ = B.X, B.Y, B.Z
+            end
+            if A.Z > 0 and BZ > 0 then
+                Count = Count + 1
+                local LineObj = Lines[Count]
+                if not LineObj then
+                    Outlines[Count] = CreateDrawing("Line", {
+                        Visible = false, Thickness = Cfg.BoxOutlineThickness,
+                        Transparency = Cfg.BoxOutlineTransparency,
+                        Color = ColorBlack, ZIndex = BaseZIndex,
+                    }, Drawings.All)
+                    LineObj = CreateDrawing("Line", {
+                        Visible = false, Thickness = 1,
+                        Color = Color, ZIndex = BaseZIndex + 1,
+                    }, Drawings.All)
+                    Lines[Count] = LineObj
+                end
+                SetLinePair(Outlines[Count], LineObj, Vector2New(A.X, A.Y), Vector2New(BX, BY))
+                LineObj.Color = Color
+                if Count > Shown then
+                    LineObj.Visible = true
+                    Outlines[Count].Visible = true
+                end
+            end
+        end
+        for Index = Count + 1, Shown do
+            Lines[Index].Visible = false
+            Outlines[Index].Visible = false
+        end
+        Drawings.SkeletonShown = Count
     end
 
     local function RenderCharacterBox(Drawings, BoxPos2D, BoxSize2D, BoxSettings, DefaultMode)
@@ -1024,6 +1200,7 @@ do
                 Current.Head = Child
             end
         end
+        Current.SkeletonBones = nil
         local Conns = self.ChildAddedConnections
         for Index = 1, #Conns do
             Conns[Index](self, Child)
@@ -1041,6 +1218,7 @@ do
         elseif Child == Current.Head then
             Current.Head = nil
         end
+        Current.SkeletonBones = nil
         RemoveFromParts(Current, Child)
         local Conns = self.ChildRemovedConnections
         for Index = 1, #Conns do
@@ -1203,7 +1381,7 @@ do
             Outline.Transparency = OutlineTransparency
         end
         local Position = Vector2New(ScreenPos.X, ScreenPos.Y)
-        local Radius = MathMax(2, Offset.X * 0.22)
+        local Radius = GetHeadDotRadius(Offset)
         Outline.Position = Position
         Outline.Radius = Radius
         Outline.Visible = true
@@ -1288,6 +1466,7 @@ do
         self:RenderHealthbar(Center2D, Offset, Settings.Healthbar)
         self:RenderHealthText(Center2D, Offset, ResolveEnabled(Settings.HealthText) and ResolveEnabled(Settings.Healthbar))
         self:RenderHeadDot(Offset, Settings.HeadDot)
+        RenderSkeleton(self, self.Drawings, Settings.Skeleton, Current, Character, Settings.HeadDot, Offset)
         local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
         BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY,
             Distance or (CameraCF.Position - GoalPos).Magnitude)
@@ -1624,6 +1803,7 @@ do
                     Self.RootPart = Child
                 end
             end
+            Self.SkeletonBones = nil
         end)
         Self.Connections[#Self.Connections + 1] = Model.ChildRemoved:Connect(function(Child)
             if Child == Self.Humanoid then
@@ -1631,6 +1811,7 @@ do
                 DisconnectAll(Self.HumanoidConnections)
             end
             if Child == Self.RootPart then Self.RootPart = nil end
+            Self.SkeletonBones = nil
             RemoveFromParts(Self, Child)
         end)
         Self.Connections[#Self.Connections + 1] = Model.AncestryChanged:Connect(function(_, Parent)
@@ -1740,6 +1921,7 @@ do
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, GoalPos, Model)
         RenderChams(self, Settings.Chams, Model)
+        RenderSkeleton(self, self.Drawings, Settings.Skeleton, self, Model)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
