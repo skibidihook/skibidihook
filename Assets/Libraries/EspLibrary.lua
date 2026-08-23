@@ -245,8 +245,12 @@ do
         end
     end
 
-    local function RenderChams(EspInstance, ChamsSettings, Adornee)
+    local function RenderChams(EspInstance, ChamsSettings, Adornee, Distance)
         if not ResolveEnabled(ChamsSettings) or not Adornee or not HiddenUiParent then
+            return DisableChams(EspInstance)
+        end
+        local Table = Type(ChamsSettings) == "table" and ChamsSettings or nil
+        if Table and Table.MaxDistance and Distance and Distance > Table.MaxDistance then
             return DisableChams(EspInstance)
         end
         local Highlight = EspInstance.ChamsHighlight
@@ -261,7 +265,6 @@ do
             EspInstance.ChamsHighlight = Highlight
             pcall(function() Highlight.Parent = HiddenUiParent end)
         end
-        local Table = Type(ChamsSettings) == "table" and ChamsSettings or nil
         if Highlight.Adornee ~= Adornee then Highlight.Adornee = Adornee end
         local Color = EspInstance.AppliedColor or EspInstance.Color or ColorWhite
         local FillColor    = (Table and Table.FillColor) or Color
@@ -494,12 +497,15 @@ do
                 Outlines[Index].Transparency = OutlineTransparency
             end
         end
+        if Drawings.LookConeColor ~= Color then
+            Drawings.LookConeColor = Color
+            for Index = 1, #Cone do Cone[Index].Color = Color end
+        end
         local Count = 0
         for Index = 1, CONE_SEGMENTS do
             Count = Count + 1
             SetLinePair(Outlines[Count], Cone[Count],
                 ConeBase2D[Index], ConeBase2D[Index % CONE_SEGMENTS + 1])
-            Cone[Count].Color = Color
             if Count > Shown then
                 Cone[Count].Visible = true
                 Outlines[Count].Visible = true
@@ -508,7 +514,6 @@ do
         for Index = 1, CONE_SEGMENTS, 2 do
             Count = Count + 1
             SetLinePair(Outlines[Count], Cone[Count], ConeBase2D[Index], Apex2)
-            Cone[Count].Color = Color
             if Count > Shown then
                 Cone[Count].Visible = true
                 Outlines[Count].Visible = true
@@ -543,7 +548,10 @@ do
         local ToV   = Vector2New(ToScreen.X, ToScreen.Y)
         if (ToV - FromV).Magnitude >= 2 then
             SetLinePair(Drawings.LookLineOutline, Line, FromV, ToV)
-            Line.Color = Color
+            if Drawings.LookLineColor ~= Color then
+                Drawings.LookLineColor = Color
+                Line.Color = Color
+            end
             Drawings.LookLineOutline.Visible = true
             Line.Visible = true
         else
@@ -593,53 +601,76 @@ do
                 break
             end
         end
+
+        local Points, Edges = {}, {}
+        local function AddPoint(Part, Offset)
+            Points[#Points + 1] = { P = Part, O = Offset }
+            return #Points
+        end
+
         if IsR15 then
-            local Bones = {}
+            local JointPoint = {}
+            for Index = 1, #R15_REQUIRED_JOINTS do
+                local Name = R15_REQUIRED_JOINTS[Index]
+                local Motor = MotorsByName[Name]
+                JointPoint[Name] = AddPoint(Motor.Part0, Motor.C0.Position)
+            end
             for Index = 1, #R15_BONE_PAIRS do
                 local Pair = R15_BONE_PAIRS[Index]
-                local MotorA = MotorsByName[Pair[1]]
-                local MotorB = MotorsByName[Pair[2]]
-                Bones[#Bones + 1] = {
-                    AP = MotorA.Part0, AO = MotorA.C0.Position,
-                    BP = MotorB.Part0, BO = MotorB.C0.Position,
-                }
+                Edges[#Edges + 1] = { JointPoint[Pair[1]], JointPoint[Pair[2]] }
             end
+            local HeadTipPoint
             for Index = 1, #R15_TIP_JOINTS do
-                local JointName = R15_TIP_JOINTS[Index]
-                local Motor = MotorsByName[JointName]
-                Bones[#Bones + 1] = {
-                    AP = Motor.Part0, AO = Motor.C0.Position,
-                    BP = Motor.Part1, BO = -Motor.C1.Position,
-                    IsHeadBone = JointName == "Neck",
-                }
+                local Name = R15_TIP_JOINTS[Index]
+                local Motor = MotorsByName[Name]
+                local TipIndex = AddPoint(Motor.Part1, -Motor.C1.Position)
+                Edges[#Edges + 1] = { JointPoint[Name], TipIndex }
+                if Name == "Neck" then HeadTipPoint = TipIndex end
             end
-            return Bones
+            return {
+                Points = Points, Edges = Edges,
+                HeadTipPoint = HeadTipPoint, HeadPart = MotorsByName.Neck.Part1,
+            }
         end
 
         local HasChild = {}
         for _, Motor in next, MotorsByPart1 do HasChild[Motor.Part0] = true end
-        local Bones = {}
+        local JointPoint, RootPoint = {}, {}
+        local function MotorPoint(Motor)
+            local Index = JointPoint[Motor]
+            if not Index then
+                Index = AddPoint(Motor.Part0, Motor.C0.Position)
+                JointPoint[Motor] = Index
+            end
+            return Index
+        end
         for Part1, Motor in next, MotorsByPart1 do
+            local A = MotorPoint(Motor)
             local ParentMotor = MotorsByPart1[Motor.Part0]
-            Bones[#Bones + 1] = {
-                AP = Motor.Part0, AO = Motor.C0.Position,
-                BP = ParentMotor and ParentMotor.Part0 or Motor.Part0,
-                BO = ParentMotor and ParentMotor.C0.Position or Vector3Zero,
-            }
+            local B
+            if ParentMotor then
+                B = MotorPoint(ParentMotor)
+            else
+                B = RootPoint[Motor.Part0]
+                if not B then
+                    B = AddPoint(Motor.Part0, Vector3Zero)
+                    RootPoint[Motor.Part0] = B
+                end
+            end
+            Edges[#Edges + 1] = { A, B }
             if not HasChild[Part1] then
-                Bones[#Bones + 1] = {
-                    AP = Motor.Part0, AO = Motor.C0.Position,
-                    BP = Part1, BO = -Motor.C1.Position,
-                }
+                Edges[#Edges + 1] = { A, AddPoint(Part1, -Motor.C1.Position) }
             end
         end
-        if #Bones < 4 then return nil end
-        return Bones
+        if #Edges < 4 then return nil end
+        return { Points = Points, Edges = Edges }
     end
 
     local function GetHeadDotRadius(Offset)
         return MathMax(2, Offset.X * 0.22)
     end
+
+    local SkelPX, SkelPY, SkelPZ = {}, {}, {}
 
     local function HideSkeleton(Drawings)
         local Lines = Drawings.SkeletonLines
@@ -668,6 +699,25 @@ do
             Holder.SkeletonBones = Bones
             if Bones == false then return HideSkeleton(Drawings) end
         end
+        local Points = Bones.Points
+        local Edges = Bones.Edges
+        local HeadTipPoint = Bones.HeadTipPoint
+        for Index = 1, #Points do
+            local Point = Points[Index]
+            local Part = Point.P
+            if not Part.Parent then
+                Holder.SkeletonBones = nil
+                return HideSkeleton(Drawings)
+            end
+            local Screen
+            if HeadDotRadius and Index == HeadTipPoint then
+                Screen = WorldToViewportPoint(CurrentCamera, Bones.HeadPart.Position)
+                SkelPX[Index], SkelPY[Index], SkelPZ[Index] = Screen.X, Screen.Y + HeadDotRadius, Screen.Z
+            else
+                Screen = WorldToViewportPoint(CurrentCamera, Part.CFrame:PointToWorldSpace(Point.O))
+                SkelPX[Index], SkelPY[Index], SkelPZ[Index] = Screen.X, Screen.Y, Screen.Z
+            end
+        end
         local Lines = Drawings.SkeletonLines
         local Outlines = Drawings.SkeletonOutlines
         if not Lines then
@@ -679,25 +729,16 @@ do
         local Shown = Drawings.SkeletonShown or 0
         local Color = (Type(SkeletonSettings) == "table" and SkeletonSettings.Color)
             or EspInstance.AppliedColor or ColorWhite
+        if Drawings.SkeletonColor ~= Color then
+            Drawings.SkeletonColor = Color
+            for Index = 1, #Lines do Lines[Index].Color = Color end
+        end
         local Count = 0
-        for Index = 1, #Bones do
+        for Index = 1, #Edges do
             if Count >= MAX_SKELETON_BONES then break end
-            local Bone = Bones[Index]
-            local AP, BP = Bone.AP, Bone.BP
-            if not AP.Parent or not BP.Parent then
-                Holder.SkeletonBones = nil
-                break
-            end
-            local A = WorldToViewportPoint(CurrentCamera, AP.CFrame:PointToWorldSpace(Bone.AO))
-            local BX, BY, BZ
-            if Bone.IsHeadBone and HeadDotRadius then
-                local HeadScreen = WorldToViewportPoint(CurrentCamera, BP.Position)
-                BX, BY, BZ = HeadScreen.X, HeadScreen.Y + HeadDotRadius, HeadScreen.Z
-            else
-                local B = WorldToViewportPoint(CurrentCamera, BP.CFrame:PointToWorldSpace(Bone.BO))
-                BX, BY, BZ = B.X, B.Y, B.Z
-            end
-            if A.Z > 0 and BZ > 0 then
+            local Edge = Edges[Index]
+            local A, B = Edge[1], Edge[2]
+            if SkelPZ[A] > 0 and SkelPZ[B] > 0 then
                 Count = Count + 1
                 local LineObj = Lines[Count]
                 if not LineObj then
@@ -712,8 +753,8 @@ do
                     }, Drawings.All)
                     Lines[Count] = LineObj
                 end
-                SetLinePair(Outlines[Count], LineObj, Vector2New(A.X, A.Y), Vector2New(BX, BY))
-                LineObj.Color = Color
+                SetLinePair(Outlines[Count], LineObj,
+                    Vector2New(SkelPX[A], SkelPY[A]), Vector2New(SkelPX[B], SkelPY[B]))
                 if Count > Shown then
                     LineObj.Visible = true
                     Outlines[Count].Visible = true
@@ -1449,7 +1490,7 @@ do
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, (Current.Head and Current.Head.Position) or GoalPos, Character)
-        RenderChams(self, Settings.Chams, Character)
+        RenderChams(self, Settings.Chams, Character, Distance)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
@@ -1618,7 +1659,7 @@ do
         if W <= 1 or H <= 1 or W ~= W or H ~= H then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, BoxCF.Position, Entity)
-        RenderChams(self, Settings.Chams, Entity)
+        RenderChams(self, Settings.Chams, Entity, Distance)
         if EspLibrary.Config.PixelSnap then
             MinX = MathFloor(MinX + 0.5)
             MinY = MathFloor(MinY + 0.5)
@@ -1920,7 +1961,7 @@ do
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
         UpdateVisibility(self, Settings.VisibleCheck, GoalPos, Model)
-        RenderChams(self, Settings.Chams, Model)
+        RenderChams(self, Settings.Chams, Model, Distance)
         RenderSkeleton(self, self.Drawings, Settings.Skeleton, self, Model)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
