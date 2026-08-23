@@ -1,5 +1,7 @@
 local CloneRef = cloneref or function(...) return ... end
 local Workspace = CloneRef(game:GetService("Workspace"))
+local PlayersService = CloneRef(game:GetService("Players"))
+local LocalPlayer = PlayersService.LocalPlayer
 local CurrentCamera = CloneRef(Workspace.CurrentCamera)
 local WorldToViewportPoint = CurrentCamera.WorldToViewportPoint
 
@@ -14,16 +16,18 @@ local MathRound     = math.round
 local MathHuge      = math.huge
 local MathMax       = math.max
 local MathAbs       = math.abs
+local MathRandom    = math.random
 local CFrameNew     = CFrame.new
 local StringLower   = string.lower
 local Type          = type
 local TypeOf        = typeof
 local OsClock       = os.clock
 
-local ColorBlack = Color3New(0, 0, 0)
-local ColorWhite = Color3New(1, 1, 1)
-local ColorGreen = Color3New(0, 1, 0)
-local ColorRed   = Color3New(1, 0, 0)
+local ColorBlack  = Color3New(0, 0, 0)
+local ColorWhite  = Color3New(1, 1, 1)
+local ColorGreen  = Color3New(0, 1, 0)
+local ColorRed    = Color3New(1, 0, 0)
+local ColorHidden = Color3New(0.55, 0.55, 0.55)
 
 local VisibleItemsBuffer = {}
 local LibraryConnections = {}
@@ -123,10 +127,43 @@ EspLibrary.Config = {
     BoundsMode             = "Default",
     BoxOutlineThickness    = 3,
     BoxOutlineTransparency = 0.55,
+    MaxRenderDistance      = MathHuge,
+    VisibleCheckInterval   = 0.08,
+    LookDirectionLength    = 15,
 }
 
--- optional { [PartName] = true } filter for character bounds; falls back to all parts when nothing matches
 EspLibrary.CharacterWhitelist = nil
+
+local VisibilityRayParams = RaycastParams.new()
+VisibilityRayParams.FilterType = Enum.RaycastFilterType.Exclude
+VisibilityRayParams.IgnoreWater = true
+local VisibilityIgnoreList = {}
+
+function EspLibrary.VisibleFunction(EspInstance, TargetPosition, TargetModel)
+    local Origin = CurrentCamera.CFrame.Position
+    local Direction = TargetPosition - Origin
+    TableClear(VisibilityIgnoreList)
+    VisibilityIgnoreList[1] = CurrentCamera
+    local LocalCharacter = LocalPlayer and LocalPlayer.Character
+    if LocalCharacter then
+        VisibilityIgnoreList[2] = LocalCharacter
+    end
+    VisibilityRayParams.FilterDescendantsInstances = VisibilityIgnoreList
+
+    for _ = 1, 4 do
+        local Result = Workspace:Raycast(Origin, Direction, VisibilityRayParams)
+        if not Result then return true end
+        local Hit = Result.Instance
+        if TargetModel and (Hit == TargetModel or Hit:IsDescendantOf(TargetModel)) then return true end
+        if Hit:IsA("BasePart") and Hit.Transparency > 0.9 then
+            VisibilityIgnoreList[#VisibilityIgnoreList + 1] = Hit
+            VisibilityRayParams.FilterDescendantsInstances = VisibilityIgnoreList
+            continue
+        end
+        return false
+    end
+    return false
+end
 
 do
     local function ResolveEnabled(Setting)
@@ -143,8 +180,6 @@ do
         return X, Y
     end
 
-    -- cull only when behind the camera or far past the viewport edge, so
-    -- partially visible targets at the screen border keep their ESP
     local function IsCenterCulled(ScreenPos)
         if ScreenPos.Z <= 0 then return true end
         local ViewportSize = CurrentCamera.ViewportSize
@@ -153,6 +188,24 @@ do
         local X, Y = ScreenPos.X, ScreenPos.Y
         return X < -MarginX or Y < -MarginY
             or X > ViewportSize.X + MarginX or Y > ViewportSize.Y + MarginY
+    end
+
+    local function UpdateVisibility(EspInstance, VisSettings, CheckPosition, TargetModel)
+        if not ResolveEnabled(VisSettings) then
+            EspInstance:ApplyColor(EspInstance.Color or ColorWhite)
+            return
+        end
+        local Now = OsClock()
+        if (Now - (EspInstance.VisibleStamp or 0)) >= EspLibrary.Config.VisibleCheckInterval then
+            EspInstance.VisibleStamp = Now
+            EspInstance.TargetVisible = EspLibrary.VisibleFunction(EspInstance, CheckPosition, TargetModel)
+        end
+        local Table = Type(VisSettings) == "table" and VisSettings or nil
+        if EspInstance.TargetVisible then
+            EspInstance:ApplyColor((Table and Table.VisibleColor) or EspInstance.Color or ColorWhite)
+        else
+            EspInstance:ApplyColor((Table and Table.HiddenColor) or ColorHidden)
+        end
     end
 
     local function GetCachedBounds(Holder, Container)
@@ -242,8 +295,6 @@ do
         end
     end
 
-    -- off-viewport points still project to valid coordinates; only points
-    -- behind the camera are unusable for the 2D box
     local function ProjectPointToScreen(WorldPosition)
         local ScreenPos = WorldToViewportPoint(CurrentCamera, WorldPosition)
         local Z = ScreenPos.Z
@@ -294,6 +345,35 @@ do
     local function SetLinePair(Outline, Line, FromV, ToV)
         Outline.From, Outline.To = FromV, ToV
         Line.From, Line.To = FromV, ToV
+    end
+
+    local function RenderLookLine(Drawings, EspInstance, Part, LookSettings)
+        local Line = Drawings.LookLine
+        local Outline = Drawings.LookLineOutline
+        if not Line then return end
+        if not ResolveEnabled(LookSettings) or not Part then
+            Line.Visible = false
+            Outline.Visible = false
+            return
+        end
+        local IsTable = Type(LookSettings) == "table"
+        local Length = (IsTable and LookSettings.Length) or EspLibrary.Config.LookDirectionLength
+        local PartCF = Part.CFrame
+        local FromPos = PartCF.Position
+        local ToPos = FromPos + PartCF.LookVector * Length
+        local FromScreen = WorldToViewportPoint(CurrentCamera, FromPos)
+        local ToScreen   = WorldToViewportPoint(CurrentCamera, ToPos)
+        if FromScreen.Z <= 0 or ToScreen.Z <= 0 then
+            Line.Visible = false
+            Outline.Visible = false
+            return
+        end
+        SetLinePair(Outline, Line,
+            Vector2New(FromScreen.X, FromScreen.Y),
+            Vector2New(ToScreen.X, ToScreen.Y))
+        Line.Color = (IsTable and LookSettings.Color) or EspInstance.AppliedColor or ColorWhite
+        Outline.Visible = true
+        Line.Visible = true
     end
 
     local function RenderCharacterBox(Drawings, BoxPos2D, BoxSize2D, BoxSettings, DefaultMode)
@@ -575,6 +655,19 @@ do
                 Color = ColorWhite,
                 ZIndex = BaseZIndex + 1,
             }, AllDrawings),
+            LookLineOutline = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = OutlineThickness,
+                Transparency = OutlineTransparency,
+                Color = ColorBlack,
+                ZIndex = BaseZIndex,
+            }, AllDrawings),
+            LookLine = CreateDrawing("Line", {
+                Visible = false,
+                Thickness = 1,
+                Color = ColorWhite,
+                ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
             FlagTexts = FlagTexts,
         }
         Drawings.All = AllDrawings
@@ -601,6 +694,8 @@ do
             AllDrawings = nil,
             Drawings = nil,
             Current = nil,
+            TargetVisible = true,
+            VisibleStamp = OsClock() - MathRandom() * EspLibrary.Config.VisibleCheckInterval,
         }, PlayerEsp)
         local Cache = PlayerEsp.DrawingCache[1]
         if Cache then
@@ -674,8 +769,9 @@ do
         HideDrawingSet(self.AllDrawings, self.Drawings)
     end
 
-    function PlayerEsp:SetColor(Color)
-        self.Color = Color
+    function PlayerEsp:ApplyColor(Color)
+        if self.AppliedColor == Color then return end
+        self.AppliedColor = Color
         local Drawings = self.Drawings
         if not Drawings then return end
         Drawings.Name.Color = Color
@@ -685,6 +781,11 @@ do
         for Index = 1, 8 do CornerLines[Index].Color = Color end
         local FullLines = Drawings.FullBox.Lines
         for Index = 1, 4 do FullLines[Index].Color = Color end
+    end
+
+    function PlayerEsp:SetColor(Color)
+        self.Color = Color
+        self:ApplyColor(Color)
     end
 
     function PlayerEsp:HumanoidHealthChanged()
@@ -909,7 +1010,7 @@ do
         Outline.Visible = true
         HeadDot.Position = Position
         HeadDot.Radius = Radius
-        HeadDot.Color = DotColor or self.Color or ColorWhite
+        HeadDot.Color = DotColor or self.AppliedColor or self.Color or ColorWhite
         HeadDot.Visible = true
     end
 
@@ -951,14 +1052,22 @@ do
         if not Current then return self:HideDrawings() end
         local Character = Current.Character
         if not Character then return self:HideDrawings() end
+        local Cfg = EspLibrary.Config
+        local CameraCF = CurrentCamera.CFrame
+        local Distance = DistanceOverride
+        if not Distance then
+            local RefPart = Current.RootPart or Current.Head
+            if RefPart then Distance = (CameraCF.Position - RefPart.Position).Magnitude end
+        end
+        if Distance and Distance > (Cfg.MaxRenderDistance or MathHuge) then return self:HideDrawings() end
         local CF, Size3D = GetCachedBounds(Current, Character)
         if not Size3D then return self:HideDrawings() end
         local GoalPos = CF.Position
         local ScreenPos = WorldToViewportPoint(CurrentCamera, GoalPos)
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
+        UpdateVisibility(self, Settings.VisibleCheck, (Current.Head and Current.Head.Position) or GoalPos, Character)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
-        local CameraCF = CurrentCamera.CFrame
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
         local TopRight3D    = BoxCF:PointToWorldSpace(Vector3New(HX, HY, 0))
@@ -976,8 +1085,9 @@ do
         self:RenderHeadDot(Offset, Settings.HeadDot)
         local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
         BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY,
-            DistanceOverride or (CameraCF.Position - GoalPos).Magnitude)
+            Distance or (CameraCF.Position - GoalPos).Magnitude)
         self:RenderFlags(Center2D, Offset, Settings.Flags)
+        RenderLookLine(self.Drawings, self, Current.Head or Current.RootPart, Settings.LookDirection)
     end
 
     EspLibrary.PlayerEsp = PlayerEsp
@@ -1037,6 +1147,8 @@ do
             Name = Name or Entity.Name,
             Connections = {},
             Hidden = false,
+            TargetVisible = true,
+            VisibleStamp = OsClock() - MathRandom() * EspLibrary.Config.VisibleCheckInterval,
         }, EntityEsp)
         local Cache = EntityEsp.DrawingCache[1]
         if Cache then
@@ -1078,8 +1190,9 @@ do
         HideDrawingSet(self.AllDrawings, self.Drawings)
     end
 
-    function EntityEsp:SetColor(Color)
-        self.Color = Color
+    function EntityEsp:ApplyColor(Color)
+        if self.AppliedColor == Color then return end
+        self.AppliedColor = Color
         local Drawings = self.Drawings
         if not Drawings then return end
         Drawings.Name.Color = Color
@@ -1088,17 +1201,29 @@ do
         for Index = 1, 8 do Drawings.Corners.Lines[Index].Color = Color end
     end
 
+    function EntityEsp:SetColor(Color)
+        self.Color = Color
+        self:ApplyColor(Color)
+    end
+
     function EntityEsp:Loop(Settings, DistanceOverride)
         if not EspLibrary.Enabled then return self:HideDrawings() end
         local Entity = self.Entity
         if not Entity or not Entity.Parent then return EntityEsp.Remove(Entity) end
+        local IsModel = Entity:IsA("Model")
+        if not IsModel and not Entity:IsA("BasePart") then return self:HideDrawings() end
+        local Cfg = EspLibrary.Config
+        local Distance = DistanceOverride
+        if not Distance then
+            local PivotPos = IsModel and Entity:GetPivot().Position or Entity.Position
+            Distance = (CurrentCamera.CFrame.Position - PivotPos).Magnitude
+        end
+        if Distance > (Cfg.MaxRenderDistance or MathHuge) then return self:HideDrawings() end
         local BoxCF, BoxSize3
-        if Entity:IsA("Model") then
+        if IsModel then
             BoxCF, BoxSize3 = Entity:GetBoundingBox()
-        elseif Entity:IsA("BasePart") then
-            BoxCF, BoxSize3 = Entity.CFrame, Entity.Size
         else
-            return self:HideDrawings()
+            BoxCF, BoxSize3 = Entity.CFrame, Entity.Size
         end
         local MinX, MinY, MaxX, MaxY, AnyInFront = Get2DBoxFrom3DBounds(BoxCF, BoxSize3)
         if not AnyInFront then return self:HideDrawings() end
@@ -1106,6 +1231,7 @@ do
         local H = MaxY - MinY
         if W <= 1 or H <= 1 or W ~= W or H ~= H then return self:HideDrawings() end
         self.Hidden = false
+        UpdateVisibility(self, Settings.VisibleCheck, BoxCF.Position, Entity)
         if EspLibrary.Config.PixelSnap then
             MinX = MathFloor(MinX + 0.5)
             MinY = MathFloor(MinY + 0.5)
@@ -1125,7 +1251,7 @@ do
             Drawings.Name.Visible = false
         end
         if ResolveEnabled(Settings.Distance) then
-            local Magnitude = MathRound(DistanceOverride or (CurrentCamera.CFrame.Position - BoxCF.Position).Magnitude)
+            local Magnitude = MathRound(Distance)
             if Drawings.DistanceValue ~= Magnitude then
                 Drawings.DistanceValue = Magnitude
                 Drawings.Distance.Text = `[{Magnitude}]`
@@ -1173,6 +1299,15 @@ do
                 Visible = false, Color = ColorBlack, Transparency = 0.55,
                 Thickness = 1, Filled = true, ZIndex = BaseZIndex,
             }, AllDrawings),
+            LookLineOutline = CreateDrawing("Line", {
+                Visible = false, Thickness = Cfg.BoxOutlineThickness,
+                Transparency = Cfg.BoxOutlineTransparency,
+                Color = ColorBlack, ZIndex = BaseZIndex,
+            }, AllDrawings),
+            LookLine = CreateDrawing("Line", {
+                Visible = false, Thickness = 1,
+                Color = ColorWhite, ZIndex = BaseZIndex + 1,
+            }, AllDrawings),
         }
         for Index = 1, 6 do
             Drawings.FlagTexts[Index] = CreateDrawing("Text", {
@@ -1218,6 +1353,8 @@ do
             Parts = nil,
             RootPart = nil,
             BoundsStamp = 0,
+            TargetVisible = true,
+            VisibleStamp = OsClock() - MathRandom() * EspLibrary.Config.VisibleCheckInterval,
         }, NpcEsp)
         local Cache = NpcEsp.DrawingCache[1]
         if Cache then
@@ -1296,14 +1433,20 @@ do
         HideDrawingSet(self.AllDrawings, self.Drawings)
     end
 
-    function NpcEsp:SetColor(Color)
-        self.Color = Color
+    function NpcEsp:ApplyColor(Color)
+        if self.AppliedColor == Color then return end
+        self.AppliedColor = Color
         local Drawings = self.Drawings
         if not Drawings then return end
         Drawings.Name.Color = Color
         Drawings.Distance.Color = Color
         for Index = 1, 4 do Drawings.FullBox.Lines[Index].Color = Color end
         for Index = 1, 8 do Drawings.Corners.Lines[Index].Color = Color end
+    end
+
+    function NpcEsp:SetColor(Color)
+        self.Color = Color
+        self:ApplyColor(Color)
     end
 
     function NpcEsp:RenderBox(BoxPos2D, BoxSize2D, BoxSettings)
@@ -1354,14 +1497,22 @@ do
         if not self.RootPart then
             self.RootPart = Model.PrimaryPart or Model:FindFirstChild("HumanoidRootPart")
         end
+        local Cfg = EspLibrary.Config
+        local CameraCF = CurrentCamera.CFrame
+        local Distance = DistanceOverride
+        if not Distance then
+            local RefPos = self.RootPart and self.RootPart.Position or Model:GetPivot().Position
+            Distance = (CameraCF.Position - RefPos).Magnitude
+        end
+        if Distance > (Cfg.MaxRenderDistance or MathHuge) then return self:HideDrawings() end
         local CF, Size3D = GetCachedBounds(self, Model)
         if not CF or not Size3D then return self:HideDrawings() end
         local GoalPos = CF.Position
         local ScreenPos = WorldToViewportPoint(CurrentCamera, GoalPos)
         if IsCenterCulled(ScreenPos) then return self:HideDrawings() end
         self.Hidden = false
+        UpdateVisibility(self, Settings.VisibleCheck, GoalPos, Model)
         local Center2D = Vector2New(ScreenPos.X, ScreenPos.Y)
-        local CameraCF = CurrentCamera.CFrame
         local BoxCF = CFrameNew(GoalPos, GoalPos + CameraCF.LookVector)
         local HX, HY = -Size3D.X * 0.5, Size3D.Y * 0.5
         local TopRight3D    = BoxCF:PointToWorldSpace(Vector3New(HX, HY, 0))
@@ -1374,9 +1525,9 @@ do
         )
         self:RenderBox(Center2D - Offset, Offset * 2, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
-        self:RenderDistance(Center2D, Offset, Settings.Distance, 0,
-            DistanceOverride or (CameraCF.Position - GoalPos).Magnitude)
+        self:RenderDistance(Center2D, Offset, Settings.Distance, 0, Distance)
         self:RenderFlags(Center2D, Offset, Settings.Flags)
+        RenderLookLine(self.Drawings, self, self.RootPart, Settings.LookDirection)
         if ResolveEnabled(Settings.Healthbar) and self.Humanoid then
             local Drawings = self.Drawings
             local Pct = self.HealthPercentage or 0
