@@ -581,6 +581,14 @@ do
         "RightHip", "RightKnee", "RightAnkle",
     }
 
+    local function IsEquipmentDescendant(Node, Model)
+        while Node and Node ~= Model do
+            if Node:IsA("Tool") or Node:IsA("Accoutrement") then return true end
+            Node = Node.Parent
+        end
+        return false
+    end
+
     local function BuildSkeletonBones(Model)
         local Humanoid = Model:FindFirstChildOfClass("Humanoid")
         if Humanoid and Humanoid.RigType == Enum.HumanoidRigType.R6 then return nil end
@@ -588,7 +596,11 @@ do
         local Descendants = Model:GetDescendants()
         for Index = 1, #Descendants do
             local Descendant = Descendants[Index]
-            if Descendant:IsA("Motor6D") and Descendant.Part0 and Descendant.Part1 then
+            if Descendant:IsA("Motor6D") and Descendant.Part0 and Descendant.Part1
+                and not IsEquipmentDescendant(Descendant, Model)
+                and not IsEquipmentDescendant(Descendant.Part0, Model)
+                and not IsEquipmentDescendant(Descendant.Part1, Model)
+            then
                 MotorsByPart1[Descendant.Part1] = Descendant
                 MotorsByName[Descendant.Name] = Descendant
             end
