@@ -155,6 +155,22 @@ EspLibrary.Config = {
 
 EspLibrary.CharacterWhitelist = nil
 
+local IconData = {}
+local IconRevision = 0
+local Unloaded = false
+function EspLibrary:RegisterIcon(Name, Data)
+    assert(not Unloaded, "Library is unloaded")
+    assert(Type(Name) == "string" and Name ~= "", "Icon name must be a nonempty string")
+    assert(Type(Data) == "string" and #Data > 0, "Icon data must contain decoded image bytes")
+    IconData[Name] = Data
+    IconRevision += 1
+end
+
+function EspLibrary:UnregisterIcon(Name)
+    IconData[Name] = nil
+    IconRevision += 1
+end
+
 local VisibilityRayParams = RaycastParams.new()
 VisibilityRayParams.FilterType = Enum.RaycastFilterType.Exclude
 VisibilityRayParams.IgnoreWater = true
@@ -199,6 +215,70 @@ do
             return MathFloor(X + 0.5), MathFloor(Y + 0.5)
         end
         return X, Y
+    end
+
+    local ImageSupported
+    local DefaultIconSize = Vector2New(24, 24)
+    local function HideIcon(Image)
+        if Image and Image.Visible then Image.Visible = false end
+        return 0
+    end
+    local function RenderIcon(EspInstance, Center, Offset, Settings, BottomY, NameEnabled)
+        local Drawings = EspInstance.Drawings
+        local Image = Drawings.Icon
+        if Type(Settings) ~= "table" or not Settings.Enabled or ImageSupported == false then return HideIcon(Image) end
+        local Key = Settings.Key
+        if Type(Settings.Resolver) == "function" then
+            local Now = OsClock()
+            if EspInstance.IconResolver ~= Settings.Resolver or Now >= (EspInstance.IconNextResolve or 0) then
+                local Ok, Result = pcall(Settings.Resolver, EspInstance)
+                EspInstance.IconResolvedKey = Ok and Result or nil
+                EspInstance.IconResolver = Settings.Resolver
+                EspInstance.IconNextResolve = Now + MathMax(Settings.RefreshInterval or 0.1, 0.016)
+            end
+            Key = EspInstance.IconResolvedKey
+        end
+        local Data = Key and IconData[Key]
+        if not Data then return HideIcon(Image) end
+        if not Image then
+            local Ok, Result = pcall(DrawingNew, "Image")
+            if not Ok or not Result then ImageSupported = false; return 0 end
+            ImageSupported = true
+            Image = Result
+            Drawings.Icon = Image
+            EspInstance.AllDrawings[#EspInstance.AllDrawings + 1] = Image
+            Image.Visible = false
+            Image.ZIndex = BaseZIndex + 1
+        end
+        if Drawings.IconData ~= Data or (not Drawings.IconValid and Drawings.IconRevision ~= IconRevision) then
+            Drawings.IconData = Data
+            Drawings.IconRevision = IconRevision
+            local Ok = pcall(function() Image.Data = Data end)
+            Drawings.IconValid = Ok
+        end
+        if not Drawings.IconValid then return HideIcon(Image) end
+        local Size = Settings.Size or DefaultIconSize
+        if TypeOf(Size) ~= "Vector2" or Size.X <= 0 or Size.Y <= 0 then return HideIcon(Image) end
+        local Color = Settings.Color or ColorWhite
+        local Transparency = math.clamp(Settings.Transparency or 1, 0, 1)
+        if Drawings.IconSize ~= Size then Image.Size = Size; Drawings.IconSize = Size end
+        if Drawings.IconColor ~= Color then Image.Color = Color; Drawings.IconColor = Color end
+        if Drawings.IconTransparency ~= Transparency then
+            Image.Transparency = Transparency
+            Drawings.IconTransparency = Transparency
+        end
+        local Padding = Settings.Padding or 2
+        if Settings.Placement == "Inline" then
+            if not Image.Visible then Image.Visible = true end
+            return Size.Y
+        end
+        local Top = Settings.Placement == "Top"
+        local Y = Top and (Center.Y - Offset.Y - (NameEnabled and EspLibrary.Config.TextSize or 0) - Padding - Size.Y)
+            or (Center.Y + Offset.Y + BottomY + Padding)
+        local Position = Vector2New(SnapPosition(Center.X - Size.X * 0.5, Y))
+        if Drawings.IconPosition ~= Position then Image.Position = Position; Drawings.IconPosition = Position end
+        if not Image.Visible then Image.Visible = true end
+        return Top and 0 or Size.Y + Padding
     end
 
     local function IsCenterCulled(ScreenPos)
@@ -1109,6 +1189,12 @@ do
         self.AllDrawings = AllDrawings
     end
 
+    PlayerEsp.CharacterResolver = nil
+
+    PlayerEsp.SetCharacterResolver = function(Resolver)
+        PlayerEsp.CharacterResolver = Resolver
+    end
+
     PlayerEsp.New = function(Player)
         local Self = setmetatable({
             Player = Player,
@@ -1357,7 +1443,7 @@ do
         NameText.Visible  = true
     end
 
-    function PlayerEsp:RenderWeapon(Center2D, Offset, WeaponSettings, BottomYOffset)
+    function PlayerEsp:RenderWeapon(Center2D, Offset, WeaponSettings, BottomYOffset, Prefix, Inline)
         local WeaponText = self.Drawings.Weapon
         if not ResolveEnabled(WeaponSettings) then
             WeaponText.Visible = false
@@ -1365,13 +1451,61 @@ do
         end
         local Drawings = self.Drawings
         local Weapon = self.Current.Weapon
-        if Drawings.WeaponRef ~= Weapon then
+        local Name = Weapon and Weapon.Name or "none"
+        if Drawings.WeaponName ~= Name or Drawings.WeaponPrefix ~= Prefix then
             Drawings.WeaponRef = Weapon
-            WeaponText.Text = Weapon and StringLower(Weapon.Name) or "none"
+            Drawings.WeaponName = Name
+            Drawings.WeaponPrefix = Prefix
+            WeaponText.Text = (Prefix or "") .. StringLower(Name)
         end
-        WeaponText.Position = Vector2New(SnapPosition(Center2D.X, Center2D.Y + Offset.Y + BottomYOffset))
+        if WeaponText.Center ~= not Inline then WeaponText.Center = not Inline end
+        if not Inline then
+            WeaponText.Position = Vector2New(SnapPosition(Center2D.X, Center2D.Y + Offset.Y + BottomYOffset))
+        end
         WeaponText.Visible = true
         return EspLibrary.Config.TextSize + 1
+    end
+
+    function PlayerEsp:RenderWeaponRow(Center2D, Offset, Settings)
+        local IconSettings = Settings.Icon
+        if Type(IconSettings) ~= "table" or IconSettings.Placement ~= "Inline" then
+            local BottomY = RenderIcon(self, Center2D, Offset, IconSettings, 0, ResolveEnabled(Settings.Name))
+            return BottomY + self:RenderWeapon(Center2D, Offset, Settings.Weapon, BottomY)
+        end
+        local Drawings = self.Drawings
+        local IconHeight = RenderIcon(self, Center2D, Offset, IconSettings, 0, false)
+        local HasIcon = IconHeight > 0
+        self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0, nil, true)
+        local Text = Drawings.Weapon
+        local TextWidth = 0
+        if Text.Visible then
+            if Drawings.WeaponMeasuredText ~= Text.Text or Drawings.WeaponMeasuredSize ~= Text.Size
+                or Drawings.WeaponMeasuredFont ~= Text.Font then
+                Drawings.WeaponMeasuredText = Text.Text
+                Drawings.WeaponMeasuredSize = Text.Size
+                Drawings.WeaponMeasuredFont = Text.Font
+                Drawings.WeaponTextWidth = Text.TextBounds.X
+            end
+            TextWidth = Drawings.WeaponTextWidth
+        end
+        local Height = MathMax(IconHeight, Text.Visible and EspLibrary.Config.TextSize or 0)
+        if Height == 0 then return 0 end
+        local IconWidth = HasIcon and Drawings.IconSize.X or 0
+        local Gap = HasIcon and Text.Visible and (IconSettings.Gap or 1) or 0
+        local Left = Center2D.X - (IconWidth + Gap + TextWidth) * 0.5
+        local Top = Center2D.Y + Offset.Y
+        if HasIcon then
+            local Position = Vector2New(SnapPosition(Left, Top + (Height - IconHeight) * 0.5))
+            if Drawings.IconPosition ~= Position then
+                Drawings.Icon.Position = Position
+                Drawings.IconPosition = Position
+            end
+        end
+        if Text.Visible then
+            local Position = Vector2New(SnapPosition(Left + IconWidth + Gap, Top + (Height - EspLibrary.Config.TextSize) * 0.5))
+            if Text.Position ~= Position then Text.Position = Position end
+        end
+        return Height + 1
     end
 
     function PlayerEsp:RenderDistance(Center2D, Offset, DistanceSettings, BottomYOffset, Distance)
@@ -1483,6 +1617,19 @@ do
 
     function PlayerEsp:Loop(Settings, DistanceOverride)
         if not EspLibrary.Enabled then return self:HideDrawings() end
+        local Resolver = PlayerEsp.CharacterResolver
+        if Resolver then
+            local Ok, Model = pcall(Resolver, self.Player)
+            if not Ok or TypeOf(Model) ~= "Instance" or not Model.Parent then Model = nil end
+            local Existing = self.Current and self.Current.Character
+            if Model ~= Existing then
+                if Model then
+                    self:CharacterAdded(Model, true)
+                elseif self.Current then
+                    self:CharacterRemoved()
+                end
+            end
+        end
         local Current = self.Current
         if not Current then return self:HideDrawings() end
         local Character = Current.Character
@@ -1520,7 +1667,7 @@ do
         self:RenderHealthText(Center2D, Offset, ResolveEnabled(Settings.HealthText) and ResolveEnabled(Settings.Healthbar))
         self:RenderHeadDot(Offset, Settings.HeadDot)
         RenderSkeleton(self, self.Drawings, Settings.Skeleton, Current, Character, Settings.HeadDot, Offset)
-        local BottomY = self:RenderWeapon(Center2D, Offset, Settings.Weapon, 0)
+        local BottomY = self:RenderWeaponRow(Center2D, Offset, Settings)
         BottomY = BottomY + self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY,
             Distance or (CameraCF.Position - GoalPos).Magnitude)
         self:RenderFlags(Center2D, Offset, Settings.Flags)
@@ -1684,6 +1831,7 @@ do
         local Offset = Vector2New(W * 0.5, H * 0.5)
         local Drawings = self.Drawings
         RenderCharacterBox(Drawings, Vector2New(MinX, MinY), Vector2New(W, H), Settings.Box, "full")
+        local BottomY = RenderIcon(self, Center2D, Offset, Settings.Icon, 0, ResolveEnabled(Settings.Name))
         if ResolveEnabled(Settings.Name) then
             Drawings.Name.Position = Vector2New(SnapPosition(Center2D.X, Center2D.Y - Offset.Y - EspLibrary.Config.TextSize))
             Drawings.Name.Visible = true
@@ -1696,7 +1844,7 @@ do
                 Drawings.DistanceValue = Magnitude
                 Drawings.Distance.Text = `[{Magnitude}]`
             end
-            Drawings.Distance.Position = Vector2New(SnapPosition(Center2D.X, Center2D.Y + Offset.Y))
+            Drawings.Distance.Position = Vector2New(SnapPosition(Center2D.X, Center2D.Y + Offset.Y + BottomY))
             Drawings.Distance.Visible = true
         else
             Drawings.Distance.Visible = false
@@ -1988,7 +2136,8 @@ do
         )
         self:RenderBox(Center2D - Offset, Offset * 2, Settings.Box)
         self:RenderName(Center2D, Offset, Settings.Name)
-        self:RenderDistance(Center2D, Offset, Settings.Distance, 0, Distance)
+        local BottomY = RenderIcon(self, Center2D, Offset, Settings.Icon, 0, ResolveEnabled(Settings.Name))
+        self:RenderDistance(Center2D, Offset, Settings.Distance, BottomY, Distance)
         self:RenderFlags(Center2D, Offset, Settings.Flags)
         RenderLookLine(self.Drawings, self, self.RootPart, Settings.LookDirection)
         if ResolveEnabled(Settings.Healthbar) and self.Humanoid then
@@ -2005,6 +2154,7 @@ do
     EspLibrary.NpcEsp = NpcEsp
 
     function EspLibrary:Unload()
+        Unloaded = true
         for _, EspInstance in next, PlayerEsp.PlayerCache do
             PlayerEsp.Remove(EspInstance.Player)
         end
@@ -2026,6 +2176,7 @@ do
         ClearCache(PlayerEsp.DrawingCache)
         ClearCache(EntityEsp.DrawingCache)
         ClearCache(NpcEsp.DrawingCache)
+        TableClear(IconData)
         TableClear(PlayerEsp.ChildAddedConnections)
         TableClear(PlayerEsp.ChildRemovedConnections)
         TableClear(PlayerEsp.DrawingAddedConnections)
