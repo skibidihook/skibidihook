@@ -309,7 +309,155 @@ do
         end
     end
 
+    local WireCache, WireCacheOrder = {}, {}
+    local WireLoads = 0
+    local WireBox = {Positions = {}, Edges = {{1,2},{2,3},{3,4},{4,1},{5,6},{6,7},{7,8},{8,5},{1,5},{2,6},{3,7},{4,8}}}
+    for _, Position in ipairs({{-.5,-.5,-.5},{.5,-.5,-.5},{.5,.5,-.5},{-.5,.5,-.5},
+        {-.5,-.5,.5},{.5,-.5,.5},{.5,.5,.5},{-.5,.5,.5}}) do
+        WireBox.Positions[#WireBox.Positions+1] = Vector3New(unpack(Position))
+    end
+
+    local function GetWireGeometry(Part)
+        if not Part:IsA("MeshPart") then return {Geometry = WireBox} end
+        local Key = Part.MeshId
+        local Entry = WireCache[Key]
+        if Entry then return Entry end
+        Entry = {Loading = true}
+        WireCache[Key] = Entry
+        task.defer(function()
+            while WireLoads >= 2 and not Unloaded do task.wait(.05) end
+            if Unloaded then return end
+            WireLoads += 1
+            local Mesh
+            local Ok, Result = pcall(function()
+                Mesh = game:GetService("AssetService"):CreateEditableMeshAsync(Content.fromUri(Key))
+                assert(Mesh, "Mesh allocation failed")
+                local Size = Mesh:GetSize()
+                assert(Size.X > 0 and Size.Y > 0 and Size.Z > 0, "Empty mesh bounds")
+                local Geometry, Indices, Seen = {Positions = {}, Edges = {}}, {}, {}
+                for _, ID in ipairs(Mesh:GetVertices()) do
+                    Geometry.Positions[#Geometry.Positions+1] = Mesh:GetPosition(ID)/Size
+                    Indices[ID] = #Geometry.Positions
+                end
+                for _, ID in ipairs(Mesh:GetFaces()) do
+                    local Face = Mesh:GetFaceVertices(ID)
+                    for Corner = 1, #Face do
+                        local First, Second = Indices[Face[Corner]], Indices[Face[Corner%#Face+1]]
+                        local EdgeKey = math.min(First,Second) .. ":" .. math.max(First,Second)
+                        if not Seen[EdgeKey] then
+                            Seen[EdgeKey] = true
+                            Geometry.Edges[#Geometry.Edges+1] = {First,Second}
+                        end
+                    end
+                end
+                return Geometry
+            end)
+            if Mesh then pcall(function() Mesh:Destroy() end) end
+            WireLoads -= 1
+            Entry.Loading = false
+            if Unloaded then return end
+            if Ok then Entry.Geometry = Result else Entry.Error = tostring(Result) end
+            WireCacheOrder[#WireCacheOrder+1] = Key
+            if #WireCacheOrder > 64 then WireCache[TableRemove(WireCacheOrder,1)] = nil end
+        end)
+        return Entry
+    end
+
+    local function HideWireChams(EspInstance)
+        local State = EspInstance.WireChams
+        if not State then return end
+        for Index = 1, State.Shown do State.Lines[Index].Visible = false end
+        State.Shown = 0
+    end
+
+    local function DestroyWireChams(EspInstance)
+        local State = EspInstance.WireChams
+        if not State then return end
+        EspInstance.WireChams = nil
+        DisconnectAll(State.Connections)
+        for _, Line in ipairs(State.Lines) do Line:Remove() end
+        TableClear(State.Parts)
+    end
+
+    local function RenderWireChams(EspInstance, Settings, Adornee)
+        local State = EspInstance.WireChams
+        if State and State.Adornee ~= Adornee then DestroyWireChams(EspInstance); State = nil end
+        if not State then
+            State = {Adornee = Adornee, Parts = {}, Lines = {}, Connections = {}, Shown = 0}
+            EspInstance.WireChams = State
+            local function Add(Part)
+                if Part:IsA("BasePart") and Part.Name ~= "HumanoidRootPart" then
+                    State.Parts[Part] = {Points = {}}
+                end
+            end
+            Add(Adornee)
+            for _, Part in ipairs(Adornee:GetDescendants()) do Add(Part) end
+            State.Connections[1] = Adornee.DescendantAdded:Connect(Add)
+            State.Connections[2] = Adornee.DescendantRemoving:Connect(function(Part) State.Parts[Part] = nil end)
+        end
+        local CameraCF, Viewport = CurrentCamera.CFrame, CurrentCamera.ViewportSize
+        local Ray = CurrentCamera:ViewportPointToRay(Viewport.X*.5,0)
+        local Direction = CameraCF:VectorToObjectSpace(Ray.Direction)
+        local Focal = Viewport.Y*.5*(-Direction.Z)/MathMax(1e-6,MathAbs(Direction.Y))
+        local Color = Settings.WireColor or Settings.OutlineColor or EspInstance.AppliedColor or EspInstance.Color or ColorWhite
+        local Opacity = 1-math.clamp(Settings.WireTransparency or 0,0,1)
+        local Thickness = math.clamp(Settings.WireThickness or 1,.5,5)
+        local Limit = math.clamp(MathFloor(Settings.WireMaxEdges or 30000),0,100000)
+        local Count, Pending, Error, Limited = 0, 0, nil, false
+        for Part, Record in next, State.Parts do
+            if not Part.Parent or (Part ~= Adornee and not Part:IsDescendantOf(Adornee)) then
+                State.Parts[Part] = nil
+                continue
+            end
+            if Part.Transparency >= 1 then continue end
+            local Key = Part:IsA("MeshPart") and Part.MeshId or false
+            if not Record.Entry or Record.Key ~= Key then Record.Entry, Record.Key = GetWireGeometry(Part), Key end
+            local Entry = Record.Entry
+            if Entry.Loading then Pending += 1; continue end
+            if Entry.Error then Error = Entry.Error; continue end
+            local Geometry = Entry.Geometry
+            if not Geometry then continue end
+            local Transform = CameraCF:ToObjectSpace(Part.CFrame)
+            local Points, Size = Record.Points, Part.Size
+            for Index, Position in ipairs(Geometry.Positions) do
+                Points[Index] = Transform:PointToWorldSpace(Position*Size)
+            end
+            for _, Edge in ipairs(Geometry.Edges) do
+                local First, Second = Points[Edge[1]], Points[Edge[2]]
+                local FirstDepth, SecondDepth = -First.Z, -Second.Z
+                local Near = .05
+                if FirstDepth < Near and SecondDepth < Near then continue end
+                if FirstDepth < Near then
+                    First = First:Lerp(Second,(Near-FirstDepth)/(SecondDepth-FirstDepth))
+                    FirstDepth = Near
+                elseif SecondDepth < Near then
+                    Second = Second:Lerp(First,(Near-SecondDepth)/(FirstDepth-SecondDepth))
+                    SecondDepth = Near
+                end
+                local AX, AY = Viewport.X*.5+First.X*Focal/FirstDepth, Viewport.Y*.5-First.Y*Focal/FirstDepth
+                local BX, BY = Viewport.X*.5+Second.X*Focal/SecondDepth, Viewport.Y*.5-Second.Y*Focal/SecondDepth
+                if (AX < 0 and BX < 0) or (AY < 0 and BY < 0) or (AX > Viewport.X and BX > Viewport.X)
+                    or (AY > Viewport.Y and BY > Viewport.Y) then continue end
+                if Count >= Limit then Limited = true; break end
+                Count += 1
+                local Line = State.Lines[Count]
+                if not Line then
+                    Line = CreateDrawing("Line", {Visible = false, ZIndex = BaseZIndex+1})
+                    State.Lines[Count] = Line
+                end
+                Line.From, Line.To = Vector2New(AX,AY), Vector2New(BX,BY)
+                Line.Color, Line.Transparency, Line.Thickness = Color, Opacity, Thickness
+                if Count > State.Shown then Line.Visible = true end
+            end
+            if Limited then break end
+        end
+        for Index = Count+1, State.Shown do State.Lines[Index].Visible = false end
+        State.Shown = Count
+        EspInstance.ChamsStatus = {Mode = "Wireframe", Loading = Pending, Edges = Count, Error = Error, Limited = Limited}
+    end
+
     local function DisableChams(EspInstance)
+        HideWireChams(EspInstance)
         if EspInstance.ChamsEnabled then
             EspInstance.ChamsEnabled = false
             pcall(function() EspInstance.ChamsHighlight.Enabled = false end)
@@ -317,6 +465,7 @@ do
     end
 
     local function DestroyChams(EspInstance)
+        DestroyWireChams(EspInstance)
         local Highlight = EspInstance.ChamsHighlight
         if Highlight then
             EspInstance.ChamsHighlight = nil
@@ -326,13 +475,28 @@ do
     end
 
     local function RenderChams(EspInstance, ChamsSettings, Adornee, Distance)
-        if not ResolveEnabled(ChamsSettings) or not Adornee or not HiddenUiParent then
+        if not ResolveEnabled(ChamsSettings) or not Adornee then
             return DisableChams(EspInstance)
         end
         local Table = Type(ChamsSettings) == "table" and ChamsSettings or nil
         if Table and Table.MaxDistance and Distance and Distance > Table.MaxDistance then
             return DisableChams(EspInstance)
         end
+        if Table and Table.Mode == "Wireframe" then
+            if EspInstance.ChamsEnabled then
+                EspInstance.ChamsEnabled = false
+                pcall(function() EspInstance.ChamsHighlight.Enabled = false end)
+            end
+            local Ok, Error = pcall(RenderWireChams, EspInstance, Table, Adornee)
+            if not Ok then
+                HideWireChams(EspInstance)
+                EspInstance.ChamsStatus = {Mode = "Wireframe", Error = tostring(Error)}
+            end
+            return
+        end
+        if EspInstance.WireChams then DestroyWireChams(EspInstance) end
+        EspInstance.ChamsStatus = nil
+        if not HiddenUiParent then return DisableChams(EspInstance) end
         local Highlight = EspInstance.ChamsHighlight
         if not Highlight then
             if EspInstance.ChamsBroken then return end
@@ -1415,6 +1579,7 @@ do
         self.Hidden = true
         HideDrawingSet(self.AllDrawings, self.Drawings)
         DisableChams(self)
+        DestroyWireChams(self)
     end
 
     function PlayerEsp:RenderBox(BoxPos2D, BoxSize2D, BoxSettings)
@@ -2155,6 +2320,8 @@ do
 
     function EspLibrary:Unload()
         Unloaded = true
+        TableClear(WireCache)
+        TableClear(WireCacheOrder)
         for _, EspInstance in next, PlayerEsp.PlayerCache do
             PlayerEsp.Remove(EspInstance.Player)
         end
