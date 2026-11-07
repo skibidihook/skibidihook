@@ -292,7 +292,8 @@ do
     end
 
     local function UpdateVisibility(EspInstance, VisSettings, CheckPosition, TargetModel)
-        if not ResolveEnabled(VisSettings) then
+        EspInstance.ChamsVisibilityColors = ResolveEnabled(VisSettings)
+        if not EspInstance.ChamsVisibilityColors then
             EspInstance:ApplyColor(EspInstance.Color or ColorWhite)
             return
         end
@@ -547,7 +548,8 @@ end
         local Ray = CurrentCamera:ViewportPointToRay(Viewport.X*.5,0)
         local Direction = CameraCF:VectorToObjectSpace(Ray.Direction)
         local Focal = Viewport.Y*.5*(-Direction.Z)/MathMax(1e-6,MathAbs(Direction.Y))
-        local Color = Settings.WireColor or Settings.OutlineColor or EspInstance.AppliedColor or EspInstance.Color or ColorWhite
+        local Color = (EspInstance.ChamsVisibilityColors and EspInstance.AppliedColor)
+            or Settings.WireColor or Settings.OutlineColor or EspInstance.AppliedColor or EspInstance.Color or ColorWhite
         local Opacity = 1-math.clamp(Settings.WireTransparency or 0,0,1)
         local Thickness = math.clamp(Settings.WireThickness or 1,.5,5)
         local Limit = math.clamp(MathFloor(Settings.WireMaxEdges or 30000),0,100000)
@@ -612,10 +614,13 @@ end
         State.Enabled, State.Glow = true, true
         State.Radius = math.clamp(Settings.GlowRadius or 12,2,32)
         local Color = Settings.GlowColor or Color3New(1,95/255,220/255)
-        if Settings.Mode == "Rainbow" then
+        if EspInstance.ChamsVisibilityColors then
+            Color = EspInstance.AppliedColor or EspInstance.Color or ColorWhite
+        elseif Settings.Mode == "Rainbow" then
             Color = Color3.fromHSV((OsClock()*math.clamp(Settings.RainbowSpeed or .15,.01,3))%1,1,1)
         end
-        local FillColor = Settings.Mode == "Rainbow" and Color:Lerp(ColorWhite,.35)
+        local FillColor = EspInstance.ChamsVisibilityColors and Color
+            or Settings.Mode == "Rainbow" and Color:Lerp(ColorWhite,.35)
             or Settings.GlowFillColor or Color:Lerp(ColorWhite,.75)
         local Opacity = 1-math.clamp(Settings.GlowTransparency or 0,0,1)
         State.GlowImage.Color, State.GlowImage.Transparency = Color, Opacity
