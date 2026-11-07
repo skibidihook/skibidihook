@@ -350,6 +350,20 @@ do
                         end
                     end
                 end
+                local Positions = Geometry.Positions
+                if #Positions > 160 then
+                    local Reduced, Distances, Selected = {}, table.create(#Positions, math.huge), 1
+                    for Sample = 1, 160 do
+                        local Point, Farthest = Positions[Selected], -1
+                        Reduced[Sample] = Point
+                        for Index, Position in ipairs(Positions) do
+                            local Difference = Position-Point
+                            Distances[Index] = math.min(Distances[Index],Difference:Dot(Difference))
+                            if Distances[Index] > Farthest then Farthest, Selected = Distances[Index], Index end
+                        end
+                    end
+                    Geometry.Silhouette = Reduced
+                else Geometry.Silhouette = Positions end
                 return Geometry
             end)
             if Mesh then pcall(function() Mesh:Destroy() end) end
@@ -363,11 +377,136 @@ do
         return Entry
     end
 
+    local CreateGlowMask = (function()
+return function(Test)
+    local Image = Drawing.new("Image")
+    Image.Visible, Image.Transparency, Image.ZIndex = false, 1, BaseZIndex
+    Image.Color = Color3.new(1,1,1)
+    Test.GlowImage = Image
+    local Mask, Scratch, Blurred = {}, {}, {}
+    local Intersections = {}
+    local PreviousMask, PreviousWidth, PreviousHeight, PreviousRadius = {}, 0, 0, 0
+    local Bytes
+    local Blur = function(Source, Target, Width, Height, Radius, Horizontal)
+        local Length, Lines, Stride = Horizontal and Width or Height, Horizontal and Height or Width, Horizontal and 1 or Width
+        local Divisor = 2*Radius+1
+        for Line = 0, Lines-1 do
+            local Base = Horizontal and Line*Width or Line
+            local Sum = 0
+            for Offset = 0, math.min(Radius,Length-1) do Sum += Source[Base+Offset*Stride+1] end
+            for Offset = 0, Length-1 do
+                Target[Base+Offset*Stride+1] = Sum/Divisor
+                local Remove, Add = Offset-Radius, Offset+Radius+1
+                if Remove >= 0 then Sum -= Source[Base+Remove*Stride+1] end
+                if Add < Length then Sum += Source[Base+Add*Stride+1] end
+            end
+        end
+    end
+    return function()
+        if not Test.Enabled or not Test.Glow then Image.Visible = false; return end
+        local MinimumX, MinimumY, MaximumX, MaximumY = math.huge, math.huge, -math.huge, -math.huge
+        for _, Record in next, Test.Records do
+            if (Record.ShownFill or 0) > 0 then
+                for _, Point in next, Record.Hull do
+                    MinimumX, MinimumY = math.min(MinimumX,Point.X), math.min(MinimumY,Point.Y)
+                    MaximumX, MaximumY = math.max(MaximumX,Point.X), math.max(MaximumY,Point.Y)
+                end
+            end
+        end
+        if MinimumX == math.huge then Image.Visible = false; return end
+        local Padding = math.max(24,Test.Radius*2)
+        MinimumX, MinimumY = math.floor(MinimumX-Padding), math.floor(MinimumY-Padding)
+        MaximumX, MaximumY = math.ceil(MaximumX+Padding), math.ceil(MaximumY+Padding)
+        local Step = math.max(4, (MaximumX-MinimumX)/96, (MaximumY-MinimumY)/96)
+        local Width, Height = math.ceil((MaximumX-MinimumX)/Step), math.ceil((MaximumY-MinimumY)/Step)
+        local Count = Width*Height
+        for Index = 1, Count do Mask[Index] = 0 end
+        for _, Record in next, Test.Records do
+            if (Record.ShownFill or 0) > 0 then
+                local Hull = Record.Hull
+                local Top, Bottom = Height-1, 0
+                for _, Point in next, Hull do
+                    Top = math.min(Top,math.floor((Point.Y-MinimumY)/Step))
+                    Bottom = math.max(Bottom,math.ceil((Point.Y-MinimumY)/Step))
+                end
+                for Row = math.max(0,Top), math.min(Height-1,Bottom) do
+                    table.clear(Intersections)
+                    local ScanY = MinimumY+(Row+.5)*Step
+                    for Index = 1, #Hull do
+                        local First, Second = Hull[Index], Hull[Index%#Hull+1]
+                        if (First.Y <= ScanY and Second.Y > ScanY) or (Second.Y <= ScanY and First.Y > ScanY) then
+                            Intersections[#Intersections+1] = First.X+(ScanY-First.Y)*(Second.X-First.X)/(Second.Y-First.Y)
+                        end
+                    end
+                    table.sort(Intersections)
+                    for Index = 1, #Intersections-1, 2 do
+                        local Left = math.max(0,math.ceil((Intersections[Index]-MinimumX)/Step-.5))
+                        local Right = math.min(Width-1,math.floor((Intersections[Index+1]-MinimumX)/Step-.5))
+                        for Column = Left, Right do Mask[Row*Width+Column+1] = 1 end
+                    end
+                end
+            end
+        end
+        local Radius = math.max(1,math.floor(Test.Radius/(Step*2)))
+        local Changed = Width ~= PreviousWidth or Height ~= PreviousHeight or Radius ~= PreviousRadius
+        for Index = 1, Count do
+            if Mask[Index] ~= PreviousMask[Index] then Changed = true end
+            PreviousMask[Index] = Mask[Index]
+        end
+        Image.Position = Vector2.new(MinimumX,MinimumY)
+        Image.Size = Vector2.new(Width*Step,Height*Step)
+        Test.MaskWidth, Test.MaskHeight = Width, Height
+        if not Changed then Image.Visible = true; return end
+        PreviousWidth, PreviousHeight, PreviousRadius = Width, Height, Radius
+        Blur(Mask,Scratch,Width,Height,Radius,true)
+        Blur(Scratch,Blurred,Width,Height,Radius,false)
+        for Pass = 1, 2 do
+            Blur(Blurred,Scratch,Width,Height,Radius,true)
+            Blur(Scratch,Blurred,Width,Height,Radius,false)
+        end
+        if not Bytes or buffer.len(Bytes) ~= 122+Count*4 then Bytes = buffer.create(122+Count*4) end
+        buffer.writestring(Bytes,0,"BM")
+        buffer.writeu32(Bytes,2,buffer.len(Bytes))
+        buffer.writeu32(Bytes,10,122)
+        buffer.writeu32(Bytes,14,108)
+        buffer.writei32(Bytes,18,Width)
+        buffer.writei32(Bytes,22,-Height)
+        buffer.writeu16(Bytes,26,1)
+        buffer.writeu16(Bytes,28,32)
+        buffer.writeu32(Bytes,30,3)
+        buffer.writeu32(Bytes,34,Count*4)
+        buffer.writeu32(Bytes,54,0x00FF0000)
+        buffer.writeu32(Bytes,58,0x0000FF00)
+        buffer.writeu32(Bytes,62,0x000000FF)
+        buffer.writeu32(Bytes,66,0xFF000000)
+        buffer.writeu32(Bytes,70,0x73524742)
+        for Index = 1, Count do
+            local Alpha = math.clamp(math.floor(Blurred[Index]*210+.5),0,255)
+            buffer.writeu32(Bytes,122+(Index-1)*4,Alpha*16777216+0xFFFFFF)
+        end
+        Image.Data = buffer.tostring(Bytes)
+        Image.Position = Vector2.new(MinimumX,MinimumY)
+        Image.Size = Vector2.new(Width*Step,Height*Step)
+        Image.Visible = true
+        Test.MaskUploads = (Test.MaskUploads or 0)+1
+    end
+end
+
+    end)()
+
+    local function HideGlowChams(State)
+        for Index = 1, State.ShownTriangles or 0 do State.Triangles[Index].Visible = false end
+        State.ShownTriangles = 0
+        if State.GlowImage then State.GlowImage.Visible = false end
+        for _, Record in next, State.Parts do Record.ShownFill = 0 end
+    end
+
     local function HideWireChams(EspInstance)
         local State = EspInstance.WireChams
         if not State then return end
         for Index = 1, State.Shown do State.Lines[Index].Visible = false end
         State.Shown = 0
+        HideGlowChams(State)
     end
 
     local function DestroyWireChams(EspInstance)
@@ -376,14 +515,17 @@ do
         EspInstance.WireChams = nil
         DisconnectAll(State.Connections)
         for _, Line in ipairs(State.Lines) do Line:Remove() end
+        for _, Triangle in ipairs(State.Triangles) do Triangle:Remove() end
+        if State.GlowImage then State.GlowImage:Remove() end
         TableClear(State.Parts)
     end
 
-    local function RenderWireChams(EspInstance, Settings, Adornee)
+    local function GetDrawingChams(EspInstance, Adornee)
         local State = EspInstance.WireChams
         if State and State.Adornee ~= Adornee then DestroyWireChams(EspInstance); State = nil end
         if not State then
-            State = {Adornee = Adornee, Parts = {}, Lines = {}, Connections = {}, Shown = 0}
+            State = {Adornee = Adornee, Parts = {}, Lines = {}, Triangles = {}, Connections = {}, Shown = 0}
+            State.Records = State.Parts
             EspInstance.WireChams = State
             local function Add(Part)
                 if Part:IsA("BasePart") and Part.Name ~= "HumanoidRootPart" then
@@ -395,6 +537,12 @@ do
             State.Connections[1] = Adornee.DescendantAdded:Connect(Add)
             State.Connections[2] = Adornee.DescendantRemoving:Connect(function(Part) State.Parts[Part] = nil end)
         end
+        return State
+    end
+
+    local function RenderWireChams(EspInstance, Settings, Adornee)
+        local State = GetDrawingChams(EspInstance, Adornee)
+        HideGlowChams(State)
         local CameraCF, Viewport = CurrentCamera.CFrame, CurrentCamera.ViewportSize
         local Ray = CurrentCamera:ViewportPointToRay(Viewport.X*.5,0)
         local Direction = CameraCF:VectorToObjectSpace(Ray.Direction)
@@ -456,6 +604,102 @@ do
         EspInstance.ChamsStatus = {Mode = "Wireframe", Loading = Pending, Edges = Count, Error = Error, Limited = Limited}
     end
 
+    local function RenderGlowChams(EspInstance, Settings, Adornee)
+        local State = GetDrawingChams(EspInstance, Adornee)
+        for Index = 1, State.Shown do State.Lines[Index].Visible = false end
+        State.Shown = 0
+        if not State.RenderGlow then State.RenderGlow = CreateGlowMask(State) end
+        State.Enabled, State.Glow = true, true
+        State.Radius = math.clamp(Settings.GlowRadius or 12,2,32)
+        local Color = Settings.GlowColor or Color3New(1,95/255,220/255)
+        if Settings.Mode == "Rainbow" then
+            Color = Color3.fromHSV((OsClock()*math.clamp(Settings.RainbowSpeed or .15,.01,3))%1,1,1)
+        end
+        local FillColor = Settings.Mode == "Rainbow" and Color:Lerp(ColorWhite,.35)
+            or Settings.GlowFillColor or Color:Lerp(ColorWhite,.75)
+        local Opacity = 1-math.clamp(Settings.GlowTransparency or 0,0,1)
+        State.GlowImage.Color, State.GlowImage.Transparency = Color, Opacity
+        local CameraCF, Viewport = CurrentCamera.CFrame, CurrentCamera.ViewportSize
+        local Ray = CurrentCamera:ViewportPointToRay(Viewport.X*.5,0)
+        local Direction = CameraCF:VectorToObjectSpace(Ray.Direction)
+        local Focal = Viewport.Y*.5*(-Direction.Z)/MathMax(1e-6,MathAbs(Direction.Y))
+        local Count, Pending, Error, Parts = 0, 0, nil, 0
+        local Limit = math.clamp(Settings.GlowMaxParts or 64,1,512)
+        local Cross = function(First, Second, Third)
+            return (Second.X-First.X)*(Third.Y-First.Y)-(Second.Y-First.Y)*(Third.X-First.X)
+        end
+        for Part, Record in next, State.Parts do
+            Record.ShownFill = 0
+            if not Part.Parent or (Part ~= Adornee and not Part:IsDescendantOf(Adornee)) then
+                State.Parts[Part] = nil
+                continue
+            end
+            if Part.Transparency >= 1 or Parts >= Limit then continue end
+            local Key = Part:IsA("MeshPart") and Part.MeshId or false
+            if not Record.Entry or Record.Key ~= Key then Record.Entry, Record.Key = GetWireGeometry(Part), Key end
+            local Entry = Record.Entry
+            if Entry.Loading then Pending += 1; continue end
+            if Entry.Error then Error = Entry.Error; continue end
+            local Geometry = Entry.Geometry
+            if not Geometry then continue end
+            local Transform, Size = CameraCF:ToObjectSpace(Part.CFrame), Part.Size
+            if -Transform.Z <= Size.Magnitude then continue end
+            local Points = Record.ScreenPoints or {}
+            Record.ScreenPoints = Points
+            table.clear(Points)
+            for _, Position in ipairs(Geometry.Silhouette or Geometry.Positions) do
+                local Point = Transform:PointToWorldSpace(Position*Size)
+                Points[#Points+1] = Vector2New(Viewport.X*.5+Point.X*Focal/-Point.Z,Viewport.Y*.5-Point.Y*Focal/-Point.Z)
+            end
+            table.sort(Points,function(First,Second) return First.X < Second.X or First.X == Second.X and First.Y < Second.Y end)
+            local Hull = Record.Hull or {}
+            Record.Hull = Hull
+            table.clear(Hull)
+            for Index = 1, #Points do
+                while #Hull >= 2 and Cross(Hull[#Hull-1],Hull[#Hull],Points[Index]) <= 0 do Hull[#Hull] = nil end
+                Hull[#Hull+1] = Points[Index]
+            end
+            local Lower = #Hull
+            for Index = #Points-1, 1, -1 do
+                while #Hull > Lower and Cross(Hull[#Hull-1],Hull[#Hull],Points[Index]) <= 0 do Hull[#Hull] = nil end
+                Hull[#Hull+1] = Points[Index]
+            end
+            Hull[#Hull] = nil
+            if #Hull < 3 then continue end
+            local Center = Vector2.zero
+            for _, Point in ipairs(Hull) do Center += Point end
+            Center /= #Hull
+            for Index = 1, #Hull do
+                Count += 1
+                local Object = State.Triangles[Count]
+                if not Object then
+                    Object = CreateDrawing("Triangle", {Visible=false,Filled=true,Thickness=0,ZIndex=BaseZIndex+1})
+                    State.Triangles[Count] = Object
+                end
+                local Triangle = {Center,Hull[Index],Hull[Index%#Hull+1]}
+                local Expand = function(Corner)
+                    local Point = Triangle[Corner]
+                    local Incoming, Outgoing = Point-Triangle[(Corner+1)%3+1], Triangle[Corner%3+1]-Point
+                    if Incoming.Magnitude < .001 or Outgoing.Magnitude < .001 then return Point end
+                    local First, Second = Vector2New(Incoming.Y,-Incoming.X).Unit, Vector2New(Outgoing.Y,-Outgoing.X).Unit
+                    local Normal = First+Second
+                    if Normal.Magnitude < .001 then return Point end
+                    Normal = Normal.Unit
+                    return Point+Normal*.6/MathMax(.1,Normal:Dot(Second))
+                end
+                Object.PointA, Object.PointB, Object.PointC = Expand(1),Expand(2),Expand(3)
+                Object.Color, Object.Transparency = FillColor, Opacity
+                if Count > (State.ShownTriangles or 0) then Object.Visible = true end
+            end
+            Record.ShownFill = #Hull
+            Parts += 1
+        end
+        for Index = Count+1, State.ShownTriangles or 0 do State.Triangles[Index].Visible = false end
+        State.ShownTriangles = Count
+        State.RenderGlow()
+        EspInstance.ChamsStatus = {Mode=Settings.Mode,Loading=Pending,Triangles=Count,Error=Error,Limited=Parts>=Limit}
+    end
+
     local function DisableChams(EspInstance)
         HideWireChams(EspInstance)
         if EspInstance.ChamsEnabled then
@@ -482,15 +726,15 @@ do
         if Table and Table.MaxDistance and Distance and Distance > Table.MaxDistance then
             return DisableChams(EspInstance)
         end
-        if Table and Table.Mode == "Wireframe" then
+        if Table and (Table.Mode == "Wireframe" or Table.Mode == "Glow" or Table.Mode == "Rainbow") then
             if EspInstance.ChamsEnabled then
                 EspInstance.ChamsEnabled = false
                 pcall(function() EspInstance.ChamsHighlight.Enabled = false end)
             end
-            local Ok, Error = pcall(RenderWireChams, EspInstance, Table, Adornee)
+            local Ok, Error = pcall(Table.Mode == "Wireframe" and RenderWireChams or RenderGlowChams, EspInstance, Table, Adornee)
             if not Ok then
                 HideWireChams(EspInstance)
-                EspInstance.ChamsStatus = {Mode = "Wireframe", Error = tostring(Error)}
+                EspInstance.ChamsStatus = {Mode = Table.Mode, Error = tostring(Error)}
             end
             return
         end
